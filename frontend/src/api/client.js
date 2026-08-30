@@ -70,6 +70,12 @@ export const api = {
   updateProfile: (data) =>
     request("/auth/profile", { method: "PUT", body: JSON.stringify(data) }),
 
+  // Reports
+  getReports: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/reports${qs ? "?" + qs : ""}`);
+  },
+
   // Data export / import
   exportData: () => request("/data/export"),
   importData: (data) =>

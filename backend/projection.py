@@ -26,6 +26,14 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
     Return a list of concrete occurrence dicts for *tx* that fall within
     [range_start, range_end].  For pontual transactions this is at most one
     entry; for recorrente transactions we expand the rule.
+
+    For recurring transactions with interest_rate:
+      Each period emits TWO occurrences — the fixed deposit (base amount) and
+      the compound interest earned on the accumulated balance so far.
+      Accumulated balance after n deposits (annuity formula):
+        S(n) = base × ((1+r)^n − 1) / r
+      Interest for period n+1 = S(n) × r
+      This correctly models: monthly deposits + compound interest on the running total.
     """
     occurrences = []
 
@@ -37,6 +45,8 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
     # Recorrente — walk forward from tx.date
     current = tx.date
     emitted = 0
+    rate = getattr(tx, "interest_rate", None) or 0.0  # % per period (e.g. 1.0 = 1%)
+    base = float(tx.amount)
 
     while current <= range_end:
         # Honour recurrence_count
@@ -56,7 +66,24 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
             break
 
         if current >= range_start:
-            occurrences.append(_make_occurrence(tx, current))
+            if rate:
+                r = rate / 100.0
+                # Fixed deposit — always the same base amount
+                occurrences.append(_make_occurrence(tx, current, base))
+
+                # Compound interest on the accumulated balance of all previous deposits.
+                # After `emitted` deposits the accumulated balance (annuity) is:
+                #   S = base * ((1+r)^emitted - 1) / r   (0 when emitted == 0)
+                if emitted > 0:
+                    accumulated = base * (((1 + r) ** emitted) - 1) / r
+                    interest = round(accumulated * r, 2)
+                    if interest > 0:
+                        interest_occ = _make_occurrence(tx, current, interest)
+                        interest_occ["description"] = f"Rendimento — {tx.description}"
+                        interest_occ["is_interest_child"] = True
+                        occurrences.append(interest_occ)
+            else:
+                occurrences.append(_make_occurrence(tx, current, base))
 
         emitted += 1
         current = _next_date(current, tx.frequency)
@@ -64,17 +91,19 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
     return occurrences
 
 
-def _make_occurrence(tx, occurrence_date: date) -> dict:
+def _make_occurrence(tx, occurrence_date: date, amount: float = None) -> dict:
     return {
         "transaction_id": tx.id,
         "description": tx.description,
-        "amount": float(tx.amount),
+        "amount": round(amount if amount is not None else float(tx.amount), 2),
         "kind": tx.kind,
         "type": tx.type,
         "date": occurrence_date.strftime("%Y-%m-%d"),
         "category": tx.category,
-        "frequency": tx.frequency,
+        "frequency": getattr(tx, "frequency", None),
         "payment_method": getattr(tx, "payment_method", None) or "a_vista",
+        "interest_rate": getattr(tx, "interest_rate", None),
+        "is_interest_child": getattr(tx, "is_interest_child", False) or False,
     }
 
 

@@ -6,6 +6,48 @@ from extensions import db
 from models import Transaction, Settings, User
 from projection import build_projection
 
+
+def _generate_interest_children(parent: Transaction) -> list[Transaction]:
+    """
+    Given a parent transaction with interest fields set, generate and return
+    the list of child Transaction objects (not yet added to the session).
+    Each child represents the incremental compound interest earned in that period.
+    """
+    rate = parent.interest_rate
+    count = parent.interest_count
+    period = parent.interest_period  # 'mensal' | 'anual'
+
+    if not rate or not count or not period:
+        return []
+
+    delta = relativedelta(months=1) if period == "mensal" else relativedelta(years=1)
+    base = float(parent.amount)
+    children = []
+    current_date = parent.date + delta
+
+    for n in range(1, count + 1):
+        # Value after n periods minus value after n-1 periods = incremental interest
+        value_before = base * ((1 + rate / 100) ** (n - 1))
+        value_after  = base * ((1 + rate / 100) ** n)
+        increment    = round(value_after - value_before, 2)
+
+        child = Transaction(
+            user_id=parent.user_id,
+            description=f"Rendimento — {parent.description}",
+            amount=increment,
+            kind="receita",
+            type="pontual",
+            date=current_date,
+            category=parent.category,
+            payment_method="a_vista",
+            is_interest_child=True,
+            parent_id=parent.id,
+        )
+        children.append(child)
+        current_date += delta
+
+    return children
+
 bp = Blueprint("api", __name__)
 
 
@@ -154,6 +196,9 @@ def create_transaction():
     if errors:
         return jsonify({"errors": errors}), 400
 
+    raw_rate = data.get("interest_rate")
+    interest_rate = float(raw_rate) if raw_rate not in (None, "", 0, "0") else None
+
     tx = Transaction(
         user_id=_uid(),
         description=data["description"].strip(),
@@ -164,6 +209,9 @@ def create_transaction():
         category=(data.get("category") or "").strip() or None,
         payment_method=data.get("payment_method", "a_vista"),
         installments=int(data["installments"]) if data.get("payment_method") == "credito" and data.get("installments") else None,
+        interest_rate=interest_rate,
+        interest_period=data.get("interest_period") if interest_rate else None,
+        interest_count=int(data["interest_count"]) if interest_rate and data.get("interest_count") else None,
     )
     if data["type"] == "recorrente":
         tx.frequency = data["frequency"]
@@ -174,6 +222,14 @@ def create_transaction():
             tx.recurrence_count = int(data["recurrence_count"])
 
     db.session.add(tx)
+    db.session.flush()  # get tx.id before generating children
+
+    # Interest children are only generated for pontual transactions.
+    # For recorrente, the projection engine handles compound interest dynamically.
+    if tx.type == "pontual":
+        for child in _generate_interest_children(tx):
+            db.session.add(child)
+
     db.session.commit()
     return jsonify(tx.to_dict()), 201
 
@@ -187,6 +243,9 @@ def update_transaction(tx_id):
     if errors:
         return jsonify({"errors": errors}), 400
 
+    raw_rate = data.get("interest_rate")
+    interest_rate = float(raw_rate) if raw_rate not in (None, "", 0, "0") else None
+
     tx.description = data["description"].strip()
     tx.amount = float(data["amount"])
     tx.kind = data["kind"]
@@ -195,6 +254,9 @@ def update_transaction(tx_id):
     tx.category = (data.get("category") or "").strip() or None
     tx.payment_method = data.get("payment_method", "a_vista")
     tx.installments = int(data["installments"]) if data.get("payment_method") == "credito" and data.get("installments") else None
+    tx.interest_rate = interest_rate
+    tx.interest_period = data.get("interest_period") if interest_rate else None
+    tx.interest_count = int(data["interest_count"]) if interest_rate and data.get("interest_count") else None
     tx.frequency = None
     tx.recurrence_end_type = None
     tx.recurrence_end_date = None
@@ -208,6 +270,15 @@ def update_transaction(tx_id):
         else:
             tx.recurrence_count = int(data["recurrence_count"])
 
+    # Regenerate interest children (pontual only — recorrente uses projection engine)
+    for child in list(tx.children):
+        db.session.delete(child)
+    db.session.flush()
+
+    if tx.type == "pontual":
+        for child in _generate_interest_children(tx):
+            db.session.add(child)
+
     db.session.commit()
     return jsonify(tx.to_dict())
 
@@ -216,6 +287,9 @@ def update_transaction(tx_id):
 @jwt_required()
 def delete_transaction(tx_id):
     tx = Transaction.query.filter_by(id=tx_id, user_id=_uid()).first_or_404()
+    # If deleting a child, delete the whole family via the parent
+    if tx.is_interest_child and tx.parent_id:
+        tx = Transaction.query.filter_by(id=tx.parent_id, user_id=_uid()).first_or_404()
     db.session.delete(tx)
     db.session.commit()
     return jsonify({"message": "Movimentação excluída com sucesso."})
@@ -372,6 +446,146 @@ def update_profile():
 
     db.session.commit()
     return jsonify(user.to_dict())
+
+
+# ── Reports ──────────────────────────────────────────────────────────────────
+
+@bp.route("/reports", methods=["GET"])
+@jwt_required()
+def get_reports():
+    uid = _uid()
+    start_str = request.args.get("start")
+    end_str   = request.args.get("end")
+
+    try:
+        range_start = _parse_date(start_str) if start_str else date.today().replace(month=1, day=1)
+        range_end   = _parse_date(end_str)   if end_str   else date.today()
+    except (ValueError, TypeError):
+        return jsonify({"error": "Datas inválidas."}), 400
+
+    # Fetch all transactions for the user (pontual in range + all recorrente)
+    from projection import expand_transaction
+    transactions = (
+        Transaction.query.filter(
+            Transaction.user_id == uid,
+            db.or_(
+                Transaction.type == "recorrente",
+                db.and_(
+                    Transaction.type == "pontual",
+                    Transaction.date >= range_start,
+                    Transaction.date <= range_end,
+                ),
+            ),
+        )
+        .order_by(Transaction.date)
+        .all()
+    )
+
+    # Expand all occurrences within the range
+    occurrences = []
+    for tx in transactions:
+        occurrences.extend(expand_transaction(tx, range_start, range_end))
+
+    if not occurrences:
+        return jsonify({
+            "period": {"start": range_start.isoformat(), "end": range_end.isoformat()},
+            "kpis": {}, "monthly": [], "by_category": [],
+            "top_expenses": [], "top_incomes": [], "payment_methods": [],
+        })
+
+    # ── Monthly aggregation ───────────────────────────────────────────────────
+    from collections import defaultdict
+    monthly: dict[str, dict] = defaultdict(lambda: {"receita": 0.0, "despesa": 0.0})
+    for occ in occurrences:
+        month = occ["date"][:7]  # "YYYY-MM"
+        monthly[month][occ["kind"]] += occ["amount"]
+
+    monthly_list = sorted(
+        [
+            {
+                "month": k,
+                "receita": round(v["receita"], 2),
+                "despesa": round(v["despesa"], 2),
+                "saldo":   round(v["receita"] - v["despesa"], 2),
+            }
+            for k, v in monthly.items()
+        ],
+        key=lambda x: x["month"],
+    )
+
+    num_months = len(monthly_list) or 1
+    total_receita  = sum(m["receita"] for m in monthly_list)
+    total_despesa  = sum(m["despesa"] for m in monthly_list)
+    avg_receita    = total_receita / num_months
+    avg_despesa    = total_despesa / num_months
+    avg_saldo      = (total_receita - total_despesa) / num_months
+    savings_rate   = (avg_saldo / avg_receita * 100) if avg_receita > 0 else 0.0
+    months_runway  = (avg_saldo / avg_despesa * 12) if avg_despesa > 0 and avg_saldo > 0 else 0.0
+
+    # ── By category ──────────────────────────────────────────────────────────
+    cat_despesa: dict[str, float] = defaultdict(float)
+    cat_receita: dict[str, float] = defaultdict(float)
+    for occ in occurrences:
+        cat = occ["category"] or "Sem categoria"
+        if occ["kind"] == "despesa":
+            cat_despesa[cat] += occ["amount"]
+        else:
+            cat_receita[cat] += occ["amount"]
+
+    by_category_despesa = sorted(
+        [{"category": k, "total": round(v, 2), "pct": round(v / total_despesa * 100, 1) if total_despesa else 0}
+         for k, v in cat_despesa.items()],
+        key=lambda x: -x["total"],
+    )
+    by_category_receita = sorted(
+        [{"category": k, "total": round(v, 2), "pct": round(v / total_receita * 100, 1) if total_receita else 0}
+         for k, v in cat_receita.items()],
+        key=lambda x: -x["total"],
+    )
+
+    # ── Top individual occurrences ───────────────────────────────────────────
+    top_expenses = sorted(
+        [o for o in occurrences if o["kind"] == "despesa"],
+        key=lambda x: -x["amount"],
+    )[:5]
+    top_incomes = sorted(
+        [o for o in occurrences if o["kind"] == "receita"],
+        key=lambda x: -x["amount"],
+    )[:5]
+
+    # ── Payment methods ───────────────────────────────────────────────────────
+    method_totals: dict[str, float] = defaultdict(float)
+    for occ in occurrences:
+        if occ["kind"] == "despesa":
+            method = occ.get("payment_method") or "a_vista"
+            method_totals[method] += occ["amount"]
+
+    payment_methods = sorted(
+        [{"method": k, "total": round(v, 2), "pct": round(v / total_despesa * 100, 1) if total_despesa else 0}
+         for k, v in method_totals.items()],
+        key=lambda x: -x["total"],
+    )
+
+    return jsonify({
+        "period": {"start": range_start.isoformat(), "end": range_end.isoformat()},
+        "kpis": {
+            "avg_monthly_income":  round(avg_receita, 2),
+            "avg_monthly_expense": round(avg_despesa, 2),
+            "avg_monthly_savings": round(avg_saldo, 2),
+            "savings_rate":        round(savings_rate, 1),
+            "total_income":        round(total_receita, 2),
+            "total_expense":       round(total_despesa, 2),
+            "net":                 round(total_receita - total_despesa, 2),
+            "num_months":          num_months,
+            "months_runway":       round(months_runway, 1),
+        },
+        "monthly":            monthly_list,
+        "by_category_expense": by_category_despesa,
+        "by_category_income":  by_category_receita,
+        "top_expenses":       top_expenses,
+        "top_incomes":        top_incomes,
+        "payment_methods":    payment_methods,
+    })
 
 
 # ── Export / Import ───────────────────────────────────────────────────────────

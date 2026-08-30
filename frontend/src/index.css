@@ -111,6 +111,9 @@ html, body {
   box-sizing: border-box;
 }
 .input::placeholder { color: var(--text-muted); }
+.input[type=number]::-webkit-inner-spin-button,
+.input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.input[type=number] { -moz-appearance: textfield; }
 .input:focus {
   border-color: transparent;
   box-shadow: 0 0 0 2px var(--ring-focus);

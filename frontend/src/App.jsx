@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import RecurringTransactions from "./pages/RecurringTransactions";
 import Simulator from "./pages/Simulator";
 import Settings from "./pages/Settings";
+import Reports from "./pages/Reports";
 import Login from "./pages/Login";
 import Cadastro from "./pages/Cadastro";
 
@@ -19,7 +20,8 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/cadastro" element={<Cadastro />} />
             <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
-<Route path="/recorrentes" element={<PrivateRoute><Layout><RecurringTransactions /></Layout></PrivateRoute>} />
+            <Route path="/relatorios"   element={<PrivateRoute><Layout><Reports /></Layout></PrivateRoute>} />
+            <Route path="/recorrentes"  element={<PrivateRoute><Layout><RecurringTransactions /></Layout></PrivateRoute>} />
             <Route path="/simulador"     element={<PrivateRoute><Layout><Simulator /></Layout></PrivateRoute>} />
             <Route path="/configuracoes" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />

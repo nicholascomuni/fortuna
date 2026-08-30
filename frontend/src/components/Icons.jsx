@@ -229,3 +229,43 @@ export function IconGlobe({ className = "w-5 h-5" }) {
     </svg>
   );
 }
+
+export function IconBarChart({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6"  y1="20" x2="6"  y2="14" />
+      <line x1="2"  y1="20" x2="22" y2="20" />
+    </svg>
+  );
+}
+
+export function IconTarget({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  );
+}
+
+export function IconPiggyBank({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8.5 3.5 1.5 4.5 1 1.1 1.5 3.5 1.5 4.5h7s0-2 1-2 1 2 1 2h3s.5-4 2-6c.5-1 1-2 1-3C23 7.1 21.3 5 19 5z" />
+      <path d="M9 14a1 1 0 1 0 2 0 1 1 0 0 0-2 0z" />
+      <line x1="17" y1="8" x2="17" y2="8" />
+    </svg>
+  );
+}
+
+export function IconCreditCard({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  );
+}

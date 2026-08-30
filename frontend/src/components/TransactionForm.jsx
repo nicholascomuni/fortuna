@@ -33,6 +33,7 @@ const empty = {
   date: today(), category: "", frequency: "mensal",
   recurrence_end_type: "por_ocorrencias", recurrence_end_date: "", recurrence_count: "12",
   payment_method: "a_vista", installments: "1",
+  interest_rate: "", interest_period: "mensal", interest_count: "12",
 };
 
 // ── Segmented toggle button ───────────────────────────────────────────────────
@@ -113,26 +114,33 @@ const END_TYPE_OPTIONS = [
   { v: "por_data",        label: "Data final"  },
 ];
 
-// When editing a credit+installments transaction the DB stores the per-installment
-// amount, so we reconstruct the total so the form shows the full value.
 function _initialAmount(initial) {
-  if (
-    initial?.payment_method === "credito" &&
-    initial?.installments > 1 &&
-    initial?.amount
-  ) {
+  if (initial?.payment_method === "credito" && initial?.installments > 1 && initial?.amount) {
     return String((parseFloat(initial.amount) * initial.installments).toFixed(2));
   }
   return String(initial?.amount ?? "");
+}
+
+function _fromInitial(initial) {
+  return {
+    ...empty,
+    ...initial,
+    installments:    String(initial.installments    ?? 1),
+    amount:          _initialAmount(initial),
+    interest_rate:   String(initial.interest_rate   ?? ""),
+    interest_period: initial.interest_period        ?? "mensal",
+    interest_count:  String(initial.interest_count  ?? "12"),
+  };
 }
 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
 export default function TransactionForm({ initial, onSubmit, onCancel, loading, categories = [] }) {
   const [form, setForm] = useState(
-    initial ? { ...empty, ...initial, installments: String(initial.installments ?? 1), amount: _initialAmount(initial) } : empty
+    initial ? _fromInitial(initial) : empty
   );
   const [errors, setErrors] = useState([]);
+  const [showInterest, setShowInterest] = useState(!!(initial?.interest_rate && !initial?.is_interest_child));
   // credit due-day flow
   const [dueDay, setDueDay]         = useState("");
   const [knownDays, setKnownDays]   = useState([]); // unique due days from existing credit txs
@@ -153,7 +161,7 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
 
   useEffect(() => {
     if (initial) {
-      setForm({ ...empty, ...initial, installments: String(initial.installments ?? 1), amount: _initialAmount(initial) });
+      setForm(_fromInitial(initial));
       // If editing a credit tx, derive the due day from the stored date
       if (initial.payment_method === "credito" && initial.date) {
         setDueDay(String(new Date(initial.date + "T12:00:00").getDate()));
@@ -164,8 +172,9 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
   function set(field, value) { setForm(f => ({ ...f, [field]: value })); }
 
   function setKind(v) {
-    setForm(f => ({ ...f, kind: v, payment_method: "a_vista", installments: "1" }));
+    setForm(f => ({ ...f, kind: v, payment_method: "a_vista", installments: "1", interest_rate: "" }));
     setDueDay("");
+    setShowInterest(false);
   }
 
   function setDueDayAndDate(day) {
@@ -193,6 +202,9 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
       category: form.category || null,
       payment_method: form.kind === "despesa" ? form.payment_method : "a_vista",
       installments: isCredit ? installmentsNum : null,
+      interest_rate:   (form.kind === "receita" && showInterest && form.interest_rate) ? parseFloat(form.interest_rate) : null,
+      interest_period: (form.kind === "receita" && showInterest && form.interest_rate) ? form.interest_period : null,
+      interest_count:  (form.kind === "receita" && showInterest && form.interest_rate) ? parseInt(form.interest_count) || null : null,
     };
     if (!forcedRecorrente && payload.type === "recorrente") {
       payload.frequency = form.frequency;
@@ -225,10 +237,76 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
       {/* Amount + Kind */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="label">Valor (R$) *</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
+            <label className="label" style={{ margin: 0 }}>Valor (R$) *</label>
+            {form.kind === "receita" && (
+              <button
+                type="button"
+                onClick={() => { setShowInterest(v => !v); if (showInterest) set("interest_rate", ""); }}
+                style={{
+                  fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.03em",
+                  padding: "0.15rem 0.5rem", borderRadius: "999px", cursor: "pointer",
+                  transition: "all 0.15s",
+                  border: `1px solid ${showInterest ? "rgba(16,185,129,0.5)" : "var(--border-input)"}`,
+                  backgroundColor: showInterest ? "rgba(16,185,129,0.1)" : "transparent",
+                  color: showInterest ? "#10b981" : "var(--text-muted)",
+                }}
+              >
+                % juros
+              </button>
+            )}
+          </div>
           <input type="number" min="0.01" step="0.01" value={form.amount}
             onChange={e => set("amount", e.target.value)}
             placeholder="0,00" required className="input" />
+          {/* Interest panel */}
+          {form.kind === "receita" && showInterest && (
+            <div style={{ marginTop: "0.625rem", padding: "0.75rem", borderRadius: "0.75rem", border: "1px solid rgba(16,185,129,0.2)", backgroundColor: "rgba(16,185,129,0.04)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.625rem" }}>
+                <div>
+                  <label style={{ color: "var(--text-secondary)", fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>Taxa (%)</label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="number" min="0" max="100" step="0.01"
+                      value={form.interest_rate}
+                      onChange={e => set("interest_rate", e.target.value)}
+                      placeholder="0,00"
+                      className="input pr-6"
+                      style={{ fontSize: "0.875rem" }}
+                      autoFocus
+                    />
+                    <span style={{ position: "absolute", right: "0.6rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.72rem", color: "var(--text-muted)", pointerEvents: "none" }}>%</span>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ color: "var(--text-secondary)", fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>Período</label>
+                  <select value={form.interest_period} onChange={e => set("interest_period", e.target.value)} className="input" style={{ fontSize: "0.875rem" }}>
+                    <option value="mensal">Mensal</option>
+                    <option value="anual">Anual</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ color: "var(--text-secondary)", fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>Qtd.</label>
+                  <input
+                    type="number" min="1" max="600" step="1"
+                    value={form.interest_count}
+                    onChange={e => set("interest_count", e.target.value)}
+                    placeholder="12"
+                    className="input"
+                    style={{ fontSize: "0.875rem" }}
+                  />
+                </div>
+              </div>
+              {parseFloat(form.interest_rate) > 0 && parseInt(form.interest_count) > 0 && (
+                <p style={{ fontSize: "0.72rem", color: "#10b981", marginTop: "0.5rem" }}>
+                  {parseInt(form.interest_count)} rendimentos · taxa {form.interest_period === "mensal"
+                    ? `≈ ${(((1 + parseFloat(form.interest_rate)/100)**12 - 1)*100).toFixed(1)}% a.a.`
+                    : `${parseFloat(form.interest_rate).toFixed(2)}% a.a.`
+                  }
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div>
           <label className="label">Tipo *</label>

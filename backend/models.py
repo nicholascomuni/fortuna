@@ -48,6 +48,23 @@ class Transaction(db.Model):
     payment_method = db.Column(db.String(20), nullable=True, default="a_vista")
     installments = db.Column(db.Integer, nullable=True)
 
+    # Compound interest
+    interest_rate = db.Column(db.Float, nullable=True)       # % per period
+    interest_period = db.Column(db.String(10), nullable=True) # 'mensal' | 'anual'
+    interest_count = db.Column(db.Integer, nullable=True)     # number of periods
+
+    # Interest child link
+    parent_id = db.Column(db.Integer, db.ForeignKey("transactions.id"), nullable=True)
+    is_interest_child = db.Column(db.Boolean, nullable=False, default=False)
+
+    children = db.relationship(
+        "Transaction",
+        backref=db.backref("parent", remote_side="Transaction.id"),
+        lazy=True,
+        cascade="all, delete-orphan",
+        foreign_keys="Transaction.parent_id",
+    )
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -67,6 +84,11 @@ class Transaction(db.Model):
             "recurrence_count": self.recurrence_count,
             "payment_method": self.payment_method or "a_vista",
             "installments": self.installments,
+            "interest_rate": self.interest_rate,
+            "interest_period": self.interest_period,
+            "interest_count": self.interest_count,
+            "parent_id": self.parent_id,
+            "is_interest_child": bool(self.is_interest_child),
         }
 
 

@@ -6,8 +6,9 @@ Aplicação full stack para controle financeiro pessoal e projeção de saldo.
 
 | Camada | Tecnologia |
 |--------|-----------|
-| Backend | Python · Flask · SQLAlchemy · SQLite |
-| Frontend | React · Vite · Recharts · Tailwind CSS |
+| Backend | Python · Flask · SQLAlchemy · roda em container no **AWS App Runner** |
+| Banco de dados | **PostgreSQL** (AWS Aurora Serverless v2) — SQLite localmente |
+| Frontend | React · Vite · Recharts · Tailwind CSS · hospedado no **Cloudflare Pages** |
 
 ---
 
@@ -39,7 +40,26 @@ pip install -r requirements.txt
 python app.py
 ```
 
-O banco de dados SQLite (`finance.db`) é criado automaticamente na primeira execução.
+Por padrão (sem `DATABASE_URL` definida) usa SQLite local (`finance.db`), criado automaticamente na primeira execução. Para rodar localmente contra um Postgres, defina `DATABASE_URL` (veja `backend/.env.example`).
+
+---
+
+## Deploy em produção
+
+Banco (Aurora Serverless v2) e backend (App Runner) são provisionados via
+Terraform, com deploy contínuo automatizado por GitHub Actions a cada push.
+Passo a passo completo em [infra/README.md](infra/README.md) — resumo:
+
+1. `cd infra && terraform apply` (duas vezes — App Runner precisa que a imagem já exista no ECR na primeira criação, ver infra/README.md).
+2. GitHub Actions ([.github/workflows/deploy-backend.yml](.github/workflows/deploy-backend.yml)) builda e publica a imagem no ECR e redeploya o App Runner a cada push em `backend/**`.
+
+### Frontend — Cloudflare Pages
+
+1. Conecte o repositório no Cloudflare Pages (dashboard → Workers & Pages → Create → Pages → Connect to Git). Todo push builda e publica automaticamente, sem código extra.
+2. Build command: `npm run build` · Output directory: `dist` · Root directory: `frontend`.
+3. Em *Settings → Environment variables*, defina `VITE_API_URL` com a URL pública do App Runner (`terraform output apprunner_service_url` + `/api`).
+4. O arquivo `frontend/public/_redirects` já garante o fallback de rotas do React Router (SPA) no Pages.
+5. Depois de saber o domínio do Pages, atualize `cors_origins` em `infra/terraform.tfvars` e rode `terraform apply` de novo, pra restringir o CORS do backend a esse domínio.
 
 ---
 

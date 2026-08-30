@@ -3,11 +3,12 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import {
   IconChart, IconRepeat, IconFlask, IconSettings,
-  IconSun, IconMoon, IconLogOut, IconDollarSign,
+  IconSun, IconMoon, IconLogOut, IconDollarSign, IconBarChart,
 } from "./Icons";
 
 const navItems = [
   { to: "/",              label: "Dashboard",    Icon: IconChart    },
+  { to: "/relatorios",    label: "Relatórios",   Icon: IconBarChart },
   { to: "/recorrentes",   label: "Recorrentes",  Icon: IconRepeat   },
   { to: "/simulador",     label: "Simulador",    Icon: IconFlask    },
   { to: "/configuracoes", label: "Configurações", Icon: IconSettings },

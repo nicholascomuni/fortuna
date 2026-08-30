@@ -1,0 +1,11 @@
+aws_region   = "us-east-1"
+project_name = "controle-financeiro"
+
+# Domain(s) allowed to call the API — set this to your Cloudflare Pages URL
+# once you know it (e.g. "https://controle-financeiro.pages.dev"). Comma-
+# separate multiple origins. Leave as "*" until then.
+cors_origins = "*"
+
+# Leave false for the first `terraform apply` (see infra/README.md), then
+# switch to true and re-apply once CI has pushed an image to ECR.
+create_apprunner_service = false

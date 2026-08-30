@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import { formatBRL, formatDate } from "../utils/format";
 import TransactionForm from "../components/TransactionForm";
+import { useConfirm } from "../components/ConfirmDialog";
 import { IconEdit, IconTrash, IconX } from "../components/Icons";
 
 const freqLabel = { semanal: "Semanal", mensal: "Mensal", anual: "Anual" };
@@ -27,6 +28,7 @@ export default function RecurringTransactions() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [toast, setToast]             = useState(null);
   const [categories, setCategories]   = useState([]);
+  const { confirm, confirmEl }        = useConfirm();
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -55,7 +57,12 @@ export default function RecurringTransactions() {
   }
 
   async function handleDelete(id) {
-    if (!confirm("Excluir esta recorrência? Ela sumirá de todas as projeções futuras.")) return;
+    const ok = await confirm({
+      title: "Excluir recorrência",
+      message: "Ela sumirá de todas as projeções futuras. Esta ação não pode ser desfeita.",
+      confirmLabel: "Excluir",
+    });
+    if (!ok) return;
     try { await api.deleteTransaction(id); showToast("Recorrência excluída."); load(); }
     catch (err) { showToast(err.message, "error"); }
   }
@@ -70,6 +77,7 @@ export default function RecurringTransactions() {
 
   return (
     <div className="space-y-5">
+      {confirmEl}
       {toast && (
         <div style={{ position: "fixed", top: "1rem", right: "1rem", zIndex: 50, padding: "0.75rem 1rem", borderRadius: "0.75rem", fontSize: "0.875rem", fontWeight: 500, color: "#fff", backgroundColor: toast.type === "error" ? "#e11d48" : "#059669" }}>
           {toast.msg}
