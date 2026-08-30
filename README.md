@@ -53,13 +53,13 @@ Passo a passo completo em [infra/README.md](infra/README.md) — resumo:
 1. `cd infra && terraform apply` (duas vezes — App Runner precisa que a imagem já exista no ECR na primeira criação, ver infra/README.md).
 2. GitHub Actions ([.github/workflows/deploy-backend.yml](.github/workflows/deploy-backend.yml)) builda e publica a imagem no ECR e redeploya o App Runner a cada push em `backend/**`.
 
-### Frontend — Cloudflare Pages
+### Frontend — Cloudflare Workers (Static Assets)
 
-1. Conecte o repositório no Cloudflare Pages (dashboard → Workers & Pages → Create → Pages → Connect to Git). Todo push builda e publica automaticamente, sem código extra.
-2. Build command: `npm run build` · Output directory: `dist` · Root directory: `frontend`.
+1. Conecte o repositório no dashboard da Cloudflare (Workers & Pages → Create → Connect to Git). Todo push builda e publica automaticamente, sem código extra.
+2. Root directory: `frontend` · Build command: `npm run build` · Production branch: `master`.
 3. Em *Settings → Environment variables*, defina `VITE_API_URL` com a URL pública do App Runner (`terraform output apprunner_service_url` + `/api`).
-4. O arquivo `frontend/public/_redirects` já garante o fallback de rotas do React Router (SPA) no Pages.
-5. Depois de saber o domínio do Pages, atualize `cors_origins` em `infra/terraform.tfvars` e rode `terraform apply` de novo, pra restringir o CORS do backend a esse domínio.
+4. O fallback de rotas do React Router (SPA) é automático — a Cloudflare gera um `wrangler.jsonc` com `assets.not_found_handling: "single-page-application"` no primeiro build. Não use `frontend/public/_redirects`; nesse modo de deploy (Workers Static Assets) ele conflita com o motor de redirects deles.
+5. Depois de saber o domínio (produção + preview), atualize `cors_origins` em `infra/terraform.tfvars` e rode `terraform apply` de novo, pra restringir o CORS do backend a esses domínios (aceita wildcard, ex.: `https://*-fortuna.nick-comuni995.workers.dev`).
 
 ---
 

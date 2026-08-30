@@ -2,7 +2,7 @@ name: Deploy backend to App Runner
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
