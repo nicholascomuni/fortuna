@@ -159,6 +159,52 @@ def build_projection(transactions, initial_balance: float, range_start: date, ra
     }
 
 
+def merge_credit_purchases(rows: list[dict], purchases, initial_balance: float) -> list[dict]:
+    """
+    Merge CreditPurchase rows into *rows* as informational-only entries.
+
+    A card purchase never moves the balance by itself — only the aggregated
+    monthly invoice Transaction (source="credit_invoice") does, and that is
+    already part of *rows*. So these entries just carry forward whatever
+    balance was already in effect at that point, and callers must compute
+    summary/chart totals from *rows* BEFORE calling this — merging in here
+    would double count against the invoice.
+    """
+    purchase_rows = [
+        {
+            "purchase_id": p.id,
+            "card_id": p.card_id,
+            "description": p.description,
+            "amount": float(p.total_amount),
+            "total_amount": float(p.total_amount),
+            "kind": "despesa",
+            "type": "pontual",
+            "date": p.purchase_date.strftime("%Y-%m-%d"),
+            "purchase_date": p.purchase_date.strftime("%Y-%m-%d"),
+            "category": p.category,
+            "installments": p.installments,
+            "source": "credit_purchase",
+            "is_interest_child": False,
+            "frequency": None,
+        }
+        for p in purchases
+    ]
+
+    merged = sorted(
+        rows + purchase_rows,
+        key=lambda o: (o["date"], 0 if o.get("source") != "credit_purchase" else 1),
+    )
+
+    balance = float(initial_balance)
+    for occ in merged:
+        if occ.get("source") == "credit_purchase":
+            occ["balance"] = round(balance, 2)
+        else:
+            balance = occ["balance"]
+
+    return merged
+
+
 def _build_chart_series(occurrences: list, initial_balance: float, range_start: date, range_end: date) -> list:
     """Aggregate occurrences by day and produce a cumulative balance series."""
     daily: dict[str, float] = {}

@@ -119,6 +119,10 @@ export default function Dashboard() {
       showToast("Esta fatura é gerada automaticamente. Edite as compras em Cartões.", "error");
       return;
     }
+    if (row.source === "credit_purchase") {
+      setEditing({ ...row, id: row.purchase_id });
+      return;
+    }
     let txId = row.id ?? row.transaction_id;
     if (!txId) return;
     try {
@@ -155,8 +159,12 @@ export default function Dashboard() {
   async function handleEditSave(payload) {
     setSaveLoading(true);
     try {
-      await api.updateTransaction(editing.id, payload);
-      showToast("Movimentação atualizada!");
+      if (editing.source === "credit_purchase") {
+        await api.updateCreditPurchase(editing.id, payload);
+      } else {
+        await api.updateTransaction(editing.id, payload);
+      }
+      showToast(editing.source === "credit_purchase" ? "Compra atualizada!" : "Movimentação atualizada!");
       setEditing(null); load();
     } finally { setSaveLoading(false); }
   }
@@ -164,6 +172,16 @@ export default function Dashboard() {
   async function handleDelete(rowOrId) {
     if (typeof rowOrId === "object" && rowOrId.source === "credit_invoice") {
       showToast("Esta fatura é gerada automaticamente. Edite as compras em Cartões.", "error");
+      return;
+    }
+    if (typeof rowOrId === "object" && rowOrId.source === "credit_purchase") {
+      const ok = await confirm({ title: "Excluir compra no cartão", message: "Esta ação não pode ser desfeita.", confirmLabel: "Excluir" });
+      if (!ok) return;
+      try {
+        await api.deleteCreditPurchase(rowOrId.purchase_id);
+        showToast("Compra excluída.");
+        load();
+      } catch (err) { showToast(err.message, "error"); }
       return;
     }
     const txId = typeof rowOrId === "object" ? (rowOrId.id ?? rowOrId.transaction_id) : rowOrId;
@@ -244,9 +262,14 @@ export default function Dashboard() {
       )}
 
       {editing && (
-        <Modal title="Editar movimentação" onClose={() => setEditing(null)}>
-          <TransactionForm initial={editing} onSubmit={handleEditSave}
-            onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
+        <Modal title={editing.source === "credit_purchase" ? "Editar compra no cartão" : "Editar movimentação"} onClose={() => setEditing(null)}>
+          {editing.source === "credit_purchase" ? (
+            <CreditPurchaseForm initial={editing} cards={cards} onSubmit={handleEditSave}
+              onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
+          ) : (
+            <TransactionForm initial={editing} onSubmit={handleEditSave}
+              onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
+          )}
         </Modal>
       )}
 

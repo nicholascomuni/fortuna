@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
 from models import Transaction, Settings, User, CreditCard, CreditPurchase, CardCharge
-from projection import build_projection
+from projection import build_projection, merge_credit_purchases
 import credit_cards as cc
 
 
@@ -159,6 +159,8 @@ def list_transactions():
         q = q.filter_by(category=request.args["category"])
     if request.args.get("type"):
         q = q.filter_by(type=request.args["type"])
+    if request.args.get("source_card_id"):
+        q = q.filter_by(source_card_id=request.args["source_card_id"])
     start = request.args.get("start")
     end = request.args.get("end")
     if start:
@@ -326,6 +328,17 @@ def get_projection():
     )
 
     result = build_projection(transactions, float(settings.initial_balance), range_start, range_end)
+
+    # Card purchases are shown for visibility only — they never move the
+    # balance (only the aggregated invoice Transaction above does), so this
+    # merge happens after summary/chart are already computed.
+    purchases = CreditPurchase.query.filter(
+        CreditPurchase.user_id == uid,
+        CreditPurchase.purchase_date >= range_start,
+        CreditPurchase.purchase_date <= range_end,
+    ).all()
+    result["rows"] = merge_credit_purchases(result["rows"], purchases, float(settings.initial_balance))
+
     return jsonify(result)
 
 
@@ -434,14 +447,30 @@ def list_cards():
         .group_by(CardCharge.card_id)
         .all()
     )
+    # Credit-limit usage must reflect every installment not yet elapsed (this
+    # month onward), not just the invoice due this month — a purchase always
+    # bills starting next month (see credit_cards.compute_billing_date), so
+    # using current_month_invoice here made a brand-new purchase invisible
+    # in the used-limit until next month.
+    open_totals = dict(
+        db.session.query(CardCharge.card_id, db.func.sum(CardCharge.amount))
+        .filter(
+            CardCharge.user_id == uid,
+            CardCharge.billing_date >= month_start,
+        )
+        .group_by(CardCharge.card_id)
+        .all()
+    )
 
     result = []
     for card in cards:
         d = card.to_dict()
         invoice = float(totals.get(card.id, 0) or 0)
+        open_balance = float(open_totals.get(card.id, 0) or 0)
         d["current_month_invoice"] = round(invoice, 2)
+        d["open_balance"] = round(open_balance, 2)
         d["limit_used_pct"] = (
-            round(invoice / float(card.credit_limit) * 100, 1) if card.credit_limit else None
+            round(open_balance / float(card.credit_limit) * 100, 1) if card.credit_limit else None
         )
         result.append(d)
     return jsonify(result)

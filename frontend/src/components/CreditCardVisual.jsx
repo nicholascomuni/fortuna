@@ -6,13 +6,14 @@ function formatBRL(v) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 }
 
-export default function CreditCardVisual({ card, invoice, limitUsedPct }) {
+export default function CreditCardVisual({ card, invoice, openBalance, limitUsedPct, onClick }) {
   const background = card.color
     ? `linear-gradient(135deg, ${card.color} 0%, ${card.color}cc 100%)`
     : DEFAULT_GRADIENT;
 
   return (
     <div
+      onClick={onClick}
       style={{
         position: "relative",
         borderRadius: "1.1rem",
@@ -25,7 +26,11 @@ export default function CreditCardVisual({ card, invoice, limitUsedPct }) {
         flexDirection: "column",
         justifyContent: "space-between",
         overflow: "hidden",
+        cursor: onClick ? "pointer" : "default",
+        transition: "transform 0.15s",
       }}
+      onMouseEnter={e => { if (onClick) e.currentTarget.style.transform = "translateY(-2px)"; }}
+      onMouseLeave={e => { if (onClick) e.currentTarget.style.transform = "translateY(0)"; }}
     >
       {/* Decorative chip */}
       <div
@@ -71,7 +76,7 @@ export default function CreditCardVisual({ card, invoice, limitUsedPct }) {
               }} />
             </div>
             <p style={{ fontSize: "0.68rem", opacity: 0.85, marginTop: "0.25rem" }}>
-              {limitUsedPct != null ? `${limitUsedPct}% do limite` : ""} · limite {formatBRL(card.credit_limit)}
+              {formatBRL(openBalance)} usado{limitUsedPct != null ? ` (${limitUsedPct}%)` : ""} · limite {formatBRL(card.credit_limit)}
             </p>
           </div>
         )}

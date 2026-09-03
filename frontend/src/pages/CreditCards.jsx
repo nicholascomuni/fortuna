@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { useConfirm } from "../components/ConfirmDialog";
 import CreditCardVisual from "../components/CreditCardVisual";
 import CreditPurchaseForm from "../components/CreditPurchaseForm";
+import CardDetailModal from "../components/CardDetailModal";
 import { IconPlus, IconEdit, IconTrash, IconX, IconCreditCard } from "../components/Icons";
 
 const COLOR_PRESETS = ["#4f46e5", "#059669", "#e11d48", "#ea580c", "#0891b2", "#7c3aed"];
@@ -119,6 +120,7 @@ export default function CreditCards() {
   const [toast, setToast] = useState(null);
   const [cardModal, setCardModal] = useState(null); // null | {} (new) | card (edit)
   const [purchaseModal, setPurchaseModal] = useState(false);
+  const [detailCard, setDetailCard] = useState(null); // null | card
   const [saveLoading, setSaveLoading] = useState(false);
   const { confirm, confirmEl } = useConfirm();
 
@@ -189,6 +191,16 @@ export default function CreditCards() {
         </Modal>
       )}
 
+      {detailCard && (
+        <CardDetailModal
+          card={detailCard}
+          cards={cards}
+          categories={categories}
+          onClose={() => setDetailCard(null)}
+          onChanged={load}
+        />
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 style={{ color: "var(--text-base)" }} className="text-xl font-bold">Cartões</h1>
@@ -225,7 +237,13 @@ export default function CreditCards() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {cards.map(card => (
             <div key={card.id} className="space-y-2">
-              <CreditCardVisual card={card} invoice={card.current_month_invoice} limitUsedPct={card.limit_used_pct} />
+              <CreditCardVisual
+                card={card}
+                invoice={card.current_month_invoice}
+                openBalance={card.open_balance}
+                limitUsedPct={card.limit_used_pct}
+                onClick={() => setDetailCard(card)}
+              />
               <div className="flex items-center justify-end gap-1">
                 <button onClick={() => setCardModal(card)} title="Editar"
                   style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}

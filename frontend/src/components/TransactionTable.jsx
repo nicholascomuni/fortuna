@@ -189,7 +189,7 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
 
               return (
                 <tr
-                  key={id ?? `${row.transaction_id}-${row.date}-${i}`}
+                  key={id ?? (row.purchase_id != null ? `purchase-${row.purchase_id}` : `${row.date}-${i}`)}
                   className="group transition-colors"
                   style={{ borderTop: "1px solid var(--border)", backgroundColor: baseBg }}
                   onMouseEnter={e => e.currentTarget.style.backgroundColor = "var(--bg-muted)"}
@@ -221,6 +221,11 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                     {row.source === "credit_invoice" && (
                       <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(99,102,241,0.12)", color: "#6366f1" }}>
                         Fatura{cardById.get(row.source_card_id) ? `: ${cardById.get(row.source_card_id).name}` : ""}
+                      </span>
+                    )}
+                    {row.source === "credit_purchase" && (
+                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(234,88,12,0.12)", color: "#ea580c" }}>
+                        Compra no cartão{cardById.get(row.card_id) ? `: ${cardById.get(row.card_id).name}` : ""}
                       </span>
                     )}
                   </td>
