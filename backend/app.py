@@ -21,6 +21,8 @@ def _migrate(database):
             conn.execute(text("ALTER TABLE settings ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'BRL'"))
         if "language" not in settings_cols:
             conn.execute(text("ALTER TABLE settings ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'pt-BR'"))
+        if "credit_migration_done" not in settings_cols:
+            conn.execute(text("ALTER TABLE settings ADD COLUMN credit_migration_done BOOLEAN NOT NULL DEFAULT false"))
         tx_cols = {c["name"] for c in insp.get_columns("transactions")}
         if "interest_rate" not in tx_cols:
             conn.execute(text("ALTER TABLE transactions ADD COLUMN interest_rate FLOAT"))
@@ -32,7 +34,94 @@ def _migrate(database):
             conn.execute(text("ALTER TABLE transactions ADD COLUMN parent_id INTEGER REFERENCES transactions(id)"))
         if "is_interest_child" not in tx_cols:
             conn.execute(text("ALTER TABLE transactions ADD COLUMN is_interest_child BOOLEAN NOT NULL DEFAULT false"))
+        if "source" not in tx_cols:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN source VARCHAR(20)"))
+        if "source_card_id" not in tx_cols:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN source_card_id INTEGER REFERENCES credit_cards(id)"))
         conn.commit()
+
+
+def _migrate_legacy_credit_transactions(database):
+    """
+    One-time, per-user migration of the old payment_method="credito" hack
+    (Transaction rows, possibly forced into type="recorrente" for installments)
+    into the new CreditCard / CreditPurchase / CardCharge model.
+    """
+    from datetime import date as _date
+    from dateutil.relativedelta import relativedelta
+    from models import User, Settings, Transaction, CreditCard, CreditPurchase, CardCharge
+    import credit_cards as cc
+
+    users = User.query.join(Settings).filter(Settings.credit_migration_done.is_(False)).all()
+
+    for user in users:
+        legacy_txs = (
+            Transaction.query.filter_by(user_id=user.id, payment_method="credito")
+            .filter(Transaction.is_interest_child.is_(False))
+            .all()
+        )
+
+        if legacy_txs:
+            placeholder_card = CreditCard(
+                user_id=user.id,
+                name="Cartão (migrado)",
+                due_day=10,
+                is_migrated_placeholder=True,
+            )
+            database.session.add(placeholder_card)
+            database.session.flush()
+
+            touched_months = set()
+
+            for tx in legacy_txs:
+                installments = (
+                    tx.recurrence_count
+                    if (tx.type == "recorrente" and tx.recurrence_count)
+                    else 1
+                )
+                installments = min(installments, 60)
+                total_amount = round(float(tx.amount) * installments, 2)
+
+                purchase = CreditPurchase(
+                    user_id=user.id,
+                    card_id=placeholder_card.id,
+                    description=tx.description,
+                    total_amount=total_amount,
+                    category=tx.category,
+                    purchase_date=tx.date,
+                    installments=installments,
+                )
+                database.session.add(purchase)
+                database.session.flush()
+
+                per_installment = round(total_amount / installments, 2)
+                current = tx.date
+                for n in range(1, installments + 1):
+                    amt = (
+                        per_installment
+                        if n < installments
+                        else round(total_amount - per_installment * (installments - 1), 2)
+                    )
+                    database.session.add(CardCharge(
+                        purchase_id=purchase.id,
+                        card_id=placeholder_card.id,
+                        user_id=user.id,
+                        installment_number=n,
+                        billing_date=current,
+                        amount=amt,
+                    ))
+                    touched_months.add((current.year, current.month))
+                    current = current + relativedelta(months=1)
+
+                database.session.delete(tx)
+
+            database.session.flush()
+            for (y, m) in touched_months:
+                cc.sync_invoice_transaction(user.id, placeholder_card, y, m)
+
+        user.settings.credit_migration_done = True
+
+    database.session.commit()
 
 
 def create_app():
@@ -69,6 +158,7 @@ def create_app():
     with app.app_context():
         db.create_all()
         _migrate(db)
+        _migrate_legacy_credit_transactions(db)
 
     return app
 

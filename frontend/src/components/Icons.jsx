@@ -269,3 +269,16 @@ export function IconCreditCard({ className = "w-5 h-5" }) {
     </svg>
   );
 }
+
+export function IconBank({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <polygon points="12 2 2 8 22 8" />
+      <line x1="3" y1="21" x2="21" y2="21" />
+      <line x1="5" y1="8" x2="5" y2="21" />
+      <line x1="10" y1="8" x2="10" y2="21" />
+      <line x1="14" y1="8" x2="14" y2="21" />
+      <line x1="19" y1="8" x2="19" y2="21" />
+    </svg>
+  );
+}

@@ -57,6 +57,10 @@ class Transaction(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey("transactions.id"), nullable=True)
     is_interest_child = db.Column(db.Boolean, nullable=False, default=False)
 
+    # System-managed origin (e.g. auto-generated credit card invoice payment)
+    source = db.Column(db.String(20), nullable=True)              # None | "credit_invoice"
+    source_card_id = db.Column(db.Integer, db.ForeignKey("credit_cards.id"), nullable=True)
+
     children = db.relationship(
         "Transaction",
         backref=db.backref("parent", remote_side="Transaction.id"),
@@ -89,6 +93,8 @@ class Transaction(db.Model):
             "interest_count": self.interest_count,
             "parent_id": self.parent_id,
             "is_interest_child": bool(self.is_interest_child),
+            "source": self.source,
+            "source_card_id": self.source_card_id,
         }
 
 
@@ -101,6 +107,7 @@ class Settings(db.Model):
     initial_balance_date = db.Column(db.Date, nullable=True)
     currency = db.Column(db.String(10), nullable=False, default="BRL")
     language = db.Column(db.String(10), nullable=False, default="pt-BR")
+    credit_migration_done = db.Column(db.Boolean, nullable=False, default=False)
 
     def to_dict(self):
         return {
@@ -111,4 +118,87 @@ class Settings(db.Model):
             ),
             "currency": self.currency or "BRL",
             "language": self.language or "pt-BR",
+        }
+
+
+class CreditCard(db.Model):
+    __tablename__ = "credit_cards"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    bank = db.Column(db.String(80), nullable=True)
+    due_day = db.Column(db.Integer, nullable=False)
+    credit_limit = db.Column(db.Numeric(12, 2), nullable=True)
+    color = db.Column(db.String(20), nullable=True)
+    is_migrated_placeholder = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    purchases = db.relationship("CreditPurchase", backref="card", lazy=True)
+    charges = db.relationship("CardCharge", backref="card", lazy=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "bank": self.bank,
+            "due_day": self.due_day,
+            "credit_limit": float(self.credit_limit) if self.credit_limit is not None else None,
+            "color": self.color,
+            "is_migrated_placeholder": bool(self.is_migrated_placeholder),
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class CreditPurchase(db.Model):
+    __tablename__ = "credit_purchases"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    card_id = db.Column(db.Integer, db.ForeignKey("credit_cards.id"), nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    total_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    category = db.Column(db.String(100), nullable=True)
+    purchase_date = db.Column(db.Date, nullable=False)
+    installments = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    charges = db.relationship(
+        "CardCharge", backref="purchase", lazy=True,
+        cascade="all, delete-orphan", order_by="CardCharge.installment_number",
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "card_id": self.card_id,
+            "description": self.description,
+            "total_amount": float(self.total_amount),
+            "category": self.category,
+            "purchase_date": self.purchase_date.strftime("%Y-%m-%d"),
+            "installments": self.installments,
+            "created_at": self.created_at.isoformat(),
+            "charges": [c.to_dict() for c in self.charges],
+        }
+
+
+class CardCharge(db.Model):
+    __tablename__ = "card_charges"
+
+    id = db.Column(db.Integer, primary_key=True)
+    purchase_id = db.Column(db.Integer, db.ForeignKey("credit_purchases.id"), nullable=False)
+    card_id = db.Column(db.Integer, db.ForeignKey("credit_cards.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    installment_number = db.Column(db.Integer, nullable=False)
+    billing_date = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "purchase_id": self.purchase_id,
+            "card_id": self.card_id,
+            "installment_number": self.installment_number,
+            "billing_date": self.billing_date.strftime("%Y-%m-%d"),
+            "amount": float(self.amount),
         }

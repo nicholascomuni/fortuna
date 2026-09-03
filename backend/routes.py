@@ -3,8 +3,9 @@ from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
-from models import Transaction, Settings, User
+from models import Transaction, Settings, User, CreditCard, CreditPurchase, CardCharge
 from projection import build_projection
+import credit_cards as cc
 
 
 def _generate_interest_children(parent: Transaction) -> list[Transaction]:
@@ -70,21 +71,7 @@ def _get_or_create_settings(user_id: int) -> Settings:
     return s
 
 
-VALID_PAYMENT_METHODS = ("a_vista", "debito", "credito")
-
-
-def _normalize_credit_installments(data: dict) -> dict:
-    """If payment_method=credito with installments>1, convert to recorrente mensal."""
-    data = dict(data)
-    method = data.get("payment_method", "a_vista")
-    if method == "credito":
-        installments = int(data.get("installments") or 1)
-        if installments > 1:
-            data["type"] = "recorrente"
-            data["frequency"] = "mensal"
-            data["recurrence_end_type"] = "por_ocorrencias"
-            data["recurrence_count"] = installments
-    return data
+VALID_PAYMENT_METHODS = ("a_vista", "debito")
 
 
 def _validate_transaction(data: dict) -> list[str]:
@@ -104,13 +91,6 @@ def _validate_transaction(data: dict) -> list[str]:
     method = data.get("payment_method", "a_vista")
     if method not in VALID_PAYMENT_METHODS:
         errors.append("Forma de pagamento inválida.")
-    if method == "credito":
-        try:
-            inst = int(data.get("installments") or 1)
-            if inst < 1:
-                errors.append("Número de parcelas deve ser maior que zero.")
-        except (TypeError, ValueError):
-            errors.append("Número de parcelas inválido.")
     try:
         _parse_date(data.get("date", ""))
     except (ValueError, TypeError):
@@ -191,7 +171,7 @@ def list_transactions():
 @bp.route("/transactions", methods=["POST"])
 @jwt_required()
 def create_transaction():
-    data = _normalize_credit_installments(request.get_json(force=True))
+    data = request.get_json(force=True)
     errors = _validate_transaction(data)
     if errors:
         return jsonify({"errors": errors}), 400
@@ -208,7 +188,6 @@ def create_transaction():
         date=_parse_date(data["date"]),
         category=(data.get("category") or "").strip() or None,
         payment_method=data.get("payment_method", "a_vista"),
-        installments=int(data["installments"]) if data.get("payment_method") == "credito" and data.get("installments") else None,
         interest_rate=interest_rate,
         interest_period=data.get("interest_period") if interest_rate else None,
         interest_count=int(data["interest_count"]) if interest_rate and data.get("interest_count") else None,
@@ -238,7 +217,9 @@ def create_transaction():
 @jwt_required()
 def update_transaction(tx_id):
     tx = Transaction.query.filter_by(id=tx_id, user_id=_uid()).first_or_404()
-    data = _normalize_credit_installments(request.get_json(force=True))
+    if tx.source == "credit_invoice":
+        return jsonify({"error": "Esta fatura é gerada automaticamente a partir das compras no cartão. Edite as compras em Cartões."}), 409
+    data = request.get_json(force=True)
     errors = _validate_transaction(data)
     if errors:
         return jsonify({"errors": errors}), 400
@@ -253,7 +234,6 @@ def update_transaction(tx_id):
     tx.date = _parse_date(data["date"])
     tx.category = (data.get("category") or "").strip() or None
     tx.payment_method = data.get("payment_method", "a_vista")
-    tx.installments = int(data["installments"]) if data.get("payment_method") == "credito" and data.get("installments") else None
     tx.interest_rate = interest_rate
     tx.interest_period = data.get("interest_period") if interest_rate else None
     tx.interest_count = int(data["interest_count"]) if interest_rate and data.get("interest_count") else None
@@ -287,6 +267,8 @@ def update_transaction(tx_id):
 @jwt_required()
 def delete_transaction(tx_id):
     tx = Transaction.query.filter_by(id=tx_id, user_id=_uid()).first_or_404()
+    if tx.source == "credit_invoice":
+        return jsonify({"error": "Esta fatura é gerada automaticamente a partir das compras no cartão. Edite as compras em Cartões."}), 409
     # If deleting a child, delete the whole family via the parent
     if tx.is_interest_child and tx.parent_id:
         tx = Transaction.query.filter_by(id=tx.parent_id, user_id=_uid()).first_or_404()
@@ -409,6 +391,213 @@ def list_categories():
         .all()
     )
     return jsonify(sorted({r[0] for r in rows if r[0]}))
+
+
+# ── Credit cards ──────────────────────────────────────────────────────────────
+
+def _validate_card(data: dict) -> list[str]:
+    errors = []
+    if not (data.get("name") or "").strip():
+        errors.append("Nome do cartão é obrigatório.")
+    try:
+        due_day = int(data.get("due_day"))
+        if due_day < 1 or due_day > 31:
+            errors.append("Dia de vencimento deve estar entre 1 e 31.")
+    except (TypeError, ValueError):
+        errors.append("Dia de vencimento inválido.")
+    limit = data.get("credit_limit")
+    if limit not in (None, ""):
+        try:
+            if float(limit) <= 0:
+                errors.append("Limite deve ser maior que zero.")
+        except (TypeError, ValueError):
+            errors.append("Limite inválido.")
+    return errors
+
+
+@bp.route("/cards", methods=["GET"])
+@jwt_required()
+def list_cards():
+    uid = _uid()
+    cards = CreditCard.query.filter_by(user_id=uid).order_by(CreditCard.created_at).all()
+
+    today = date.today()
+    month_start = today.replace(day=1)
+    month_end = month_start + relativedelta(months=1) - relativedelta(days=1)
+    totals = dict(
+        db.session.query(CardCharge.card_id, db.func.sum(CardCharge.amount))
+        .filter(
+            CardCharge.user_id == uid,
+            CardCharge.billing_date >= month_start,
+            CardCharge.billing_date <= month_end,
+        )
+        .group_by(CardCharge.card_id)
+        .all()
+    )
+
+    result = []
+    for card in cards:
+        d = card.to_dict()
+        invoice = float(totals.get(card.id, 0) or 0)
+        d["current_month_invoice"] = round(invoice, 2)
+        d["limit_used_pct"] = (
+            round(invoice / float(card.credit_limit) * 100, 1) if card.credit_limit else None
+        )
+        result.append(d)
+    return jsonify(result)
+
+
+@bp.route("/cards", methods=["POST"])
+@jwt_required()
+def create_card():
+    data = request.get_json(force=True)
+    errors = _validate_card(data)
+    if errors:
+        return jsonify({"errors": errors}), 400
+
+    card = CreditCard(
+        user_id=_uid(),
+        name=data["name"].strip(),
+        bank=(data.get("bank") or "").strip() or None,
+        due_day=int(data["due_day"]),
+        credit_limit=float(data["credit_limit"]) if data.get("credit_limit") not in (None, "") else None,
+        color=(data.get("color") or "").strip() or None,
+    )
+    db.session.add(card)
+    db.session.commit()
+    return jsonify(card.to_dict()), 201
+
+
+@bp.route("/cards/<int:card_id>", methods=["PUT"])
+@jwt_required()
+def update_card(card_id):
+    card = CreditCard.query.filter_by(id=card_id, user_id=_uid()).first_or_404()
+    data = request.get_json(force=True)
+    errors = _validate_card(data)
+    if errors:
+        return jsonify({"errors": errors}), 400
+
+    card.name = data["name"].strip()
+    card.bank = (data.get("bank") or "").strip() or None
+    card.due_day = int(data["due_day"])
+    card.credit_limit = float(data["credit_limit"]) if data.get("credit_limit") not in (None, "") else None
+    card.color = (data.get("color") or "").strip() or None
+    db.session.commit()
+    return jsonify(card.to_dict())
+
+
+@bp.route("/cards/<int:card_id>", methods=["DELETE"])
+@jwt_required()
+def delete_card(card_id):
+    card = CreditCard.query.filter_by(id=card_id, user_id=_uid()).first_or_404()
+    if CreditPurchase.query.filter_by(card_id=card.id).count() > 0:
+        return jsonify({"error": "Este cartão possui compras vinculadas. Exclua ou transfira as compras antes de remover o cartão."}), 409
+    db.session.delete(card)
+    db.session.commit()
+    return jsonify({"message": "Cartão excluído com sucesso."})
+
+
+# ── Credit purchases ──────────────────────────────────────────────────────────
+
+def _validate_credit_purchase(data: dict, uid: int) -> list[str]:
+    errors = []
+    if not (data.get("description") or "").strip():
+        errors.append("Descrição é obrigatória.")
+    try:
+        if float(data.get("total_amount", 0)) <= 0:
+            errors.append("Valor deve ser maior que zero.")
+    except (TypeError, ValueError):
+        errors.append("Valor inválido.")
+    try:
+        inst = int(data.get("installments") or 1)
+        if inst < 1:
+            errors.append("Número de parcelas deve ser maior que zero.")
+    except (TypeError, ValueError):
+        errors.append("Número de parcelas inválido.")
+    try:
+        _parse_date(data.get("purchase_date", ""))
+    except (ValueError, TypeError):
+        errors.append("Data da compra inválida.")
+    card_id = data.get("card_id")
+    if not card_id or not CreditCard.query.filter_by(id=card_id, user_id=uid).first():
+        errors.append("Cartão inválido.")
+    return errors
+
+
+@bp.route("/credit-purchases", methods=["GET"])
+@jwt_required()
+def list_credit_purchases():
+    uid = _uid()
+    q = CreditPurchase.query.filter_by(user_id=uid)
+    if request.args.get("card_id"):
+        q = q.filter_by(card_id=request.args["card_id"])
+    start = request.args.get("start")
+    end = request.args.get("end")
+    if start:
+        q = q.filter(CreditPurchase.purchase_date >= _parse_date(start))
+    if end:
+        q = q.filter(CreditPurchase.purchase_date <= _parse_date(end))
+    return jsonify([p.to_dict() for p in q.order_by(CreditPurchase.purchase_date).all()])
+
+
+@bp.route("/credit-purchases", methods=["POST"])
+@jwt_required()
+def create_credit_purchase():
+    uid = _uid()
+    data = request.get_json(force=True)
+    errors = _validate_credit_purchase(data, uid)
+    if errors:
+        return jsonify({"errors": errors}), 400
+
+    card = CreditCard.query.filter_by(id=data["card_id"], user_id=uid).first_or_404()
+    purchase = CreditPurchase(
+        user_id=uid,
+        card_id=card.id,
+        description=data["description"].strip(),
+        total_amount=float(data["total_amount"]),
+        category=(data.get("category") or "").strip() or None,
+        purchase_date=_parse_date(data["purchase_date"]),
+        installments=int(data.get("installments") or 1),
+    )
+    cc.create_purchase(uid, card, purchase)
+    db.session.commit()
+    return jsonify(purchase.to_dict()), 201
+
+
+@bp.route("/credit-purchases/<int:purchase_id>", methods=["PUT"])
+@jwt_required()
+def update_credit_purchase(purchase_id):
+    uid = _uid()
+    purchase = CreditPurchase.query.filter_by(id=purchase_id, user_id=uid).first_or_404()
+    data = request.get_json(force=True)
+    errors = _validate_credit_purchase(data, uid)
+    if errors:
+        return jsonify({"errors": errors}), 400
+
+    old_card = CreditCard.query.filter_by(id=purchase.card_id, user_id=uid).first_or_404()
+    new_card = CreditCard.query.filter_by(id=data["card_id"], user_id=uid).first_or_404()
+
+    purchase.description = data["description"].strip()
+    purchase.total_amount = float(data["total_amount"])
+    purchase.category = (data.get("category") or "").strip() or None
+    purchase.purchase_date = _parse_date(data["purchase_date"])
+    purchase.installments = int(data.get("installments") or 1)
+    purchase.card_id = new_card.id
+
+    cc.update_purchase(uid, old_card, new_card, purchase)
+    db.session.commit()
+    return jsonify(purchase.to_dict())
+
+
+@bp.route("/credit-purchases/<int:purchase_id>", methods=["DELETE"])
+@jwt_required()
+def delete_credit_purchase(purchase_id):
+    uid = _uid()
+    purchase = CreditPurchase.query.filter_by(id=purchase_id, user_id=uid).first_or_404()
+    card = CreditCard.query.filter_by(id=purchase.card_id, user_id=uid).first_or_404()
+    cc.delete_purchase(uid, card, purchase)
+    db.session.commit()
+    return jsonify({"message": "Compra excluída com sucesso."})
 
 
 # ── Profile ───────────────────────────────────────────────────────────────────

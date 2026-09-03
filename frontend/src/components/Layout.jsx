@@ -3,15 +3,16 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import {
   IconChart, IconRepeat, IconFlask, IconSettings,
-  IconSun, IconMoon, IconLogOut, IconDollarSign, IconBarChart,
+  IconSun, IconMoon, IconLogOut, IconDollarSign, IconBarChart, IconCreditCard,
 } from "./Icons";
 
 const navItems = [
-  { to: "/",              label: "Dashboard",    Icon: IconChart    },
-  { to: "/relatorios",    label: "Relatórios",   Icon: IconBarChart },
-  { to: "/recorrentes",   label: "Recorrentes",  Icon: IconRepeat   },
-  { to: "/simulador",     label: "Simulador",    Icon: IconFlask    },
-  { to: "/configuracoes", label: "Configurações", Icon: IconSettings },
+  { to: "/",              label: "Dashboard",    Icon: IconChart      },
+  { to: "/cartoes",       label: "Cartões",      Icon: IconCreditCard },
+  { to: "/relatorios",    label: "Relatórios",   Icon: IconBarChart   },
+  { to: "/recorrentes",   label: "Recorrentes",  Icon: IconRepeat     },
+  { to: "/simulador",     label: "Simulador",    Icon: IconFlask      },
+  { to: "/configuracoes", label: "Configurações", Icon: IconSettings  },
 ];
 
 export default function Layout({ children }) {

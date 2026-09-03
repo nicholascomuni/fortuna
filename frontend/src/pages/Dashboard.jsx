@@ -5,11 +5,17 @@ import SummaryCard from "../components/SummaryCard";
 import BalanceChart from "../components/BalanceChart";
 import TransactionTable from "../components/TransactionTable";
 import TransactionForm from "../components/TransactionForm";
+import CreditPurchaseForm from "../components/CreditPurchaseForm";
 import { useConfirm } from "../components/ConfirmDialog";
 import {
   IconTrendingUp, IconTrendingDown, IconWallet,
   IconAlertTriangle, IconPlus, IconFilter, IconX,
 } from "../components/Icons";
+
+const ENTRY_MODES = [
+  { v: "comum",   label: "Despesa/Receita comum" },
+  { v: "credito", label: "Compra no cartão" },
+];
 
 function Modal({ title, onClose, children }) {
   return (
@@ -45,9 +51,9 @@ export default function Dashboard() {
   const [filterKind, setFilterKind] = useState("");
   const [filterCat, setFilterCat]   = useState("");
 
-  const [showCredit, setShowCredit]       = useState(false);
   const { confirm, confirmEl }            = useConfirm();
   const [adding, setAdding]               = useState(false);
+  const [entryMode, setEntryMode]         = useState("comum");
   const [addLoading, setAddLoading]       = useState(false);
   const [editing, setEditing]             = useState(null);
   const [saveLoading, setSaveLoading]     = useState(false);
@@ -55,6 +61,7 @@ export default function Dashboard() {
   const [balanceModal, setBalanceModal]   = useState(false);
   const [balanceInput, setBalanceInput]   = useState("");
   const [savingBalance, setSavingBalance] = useState(false);
+  const [cards, setCards]                 = useState([]);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -64,14 +71,16 @@ export default function Dashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [proj, sett, cats] = await Promise.all([
+      const [proj, sett, cats, cardsData] = await Promise.all([
         api.getProjection({ start: startDate, end: endDate }),
         api.getSettings(),
         api.getCategories(),
+        api.getCards(),
       ]);
       setProjection(proj);
       setSettings(sett);
       setCategories(cats);
+      setCards(cardsData);
       setBalanceInput(sett.initial_balance?.toString() ?? "0");
     } catch (e) {
       showToast(e.message, "error");
@@ -106,6 +115,10 @@ export default function Dashboard() {
   }
 
   async function handleOpenEdit(row) {
+    if (row.source === "credit_invoice") {
+      showToast("Esta fatura é gerada automaticamente. Edite as compras em Cartões.", "error");
+      return;
+    }
     let txId = row.id ?? row.transaction_id;
     if (!txId) return;
     try {
@@ -129,6 +142,16 @@ export default function Dashboard() {
     finally { setAddLoading(false); }
   }
 
+  async function handleAddPurchaseSave(payload) {
+    setAddLoading(true);
+    try {
+      await api.createCreditPurchase(payload);
+      showToast("Compra no cartão adicionada!");
+      setAdding(false); load();
+    } catch (err) { showToast(err.message, "error"); throw err; }
+    finally { setAddLoading(false); }
+  }
+
   async function handleEditSave(payload) {
     setSaveLoading(true);
     try {
@@ -139,6 +162,10 @@ export default function Dashboard() {
   }
 
   async function handleDelete(rowOrId) {
+    if (typeof rowOrId === "object" && rowOrId.source === "credit_invoice") {
+      showToast("Esta fatura é gerada automaticamente. Edite as compras em Cartões.", "error");
+      return;
+    }
     const txId = typeof rowOrId === "object" ? (rowOrId.id ?? rowOrId.transaction_id) : rowOrId;
     if (!txId) return;
     const ok = await confirm({ title: "Excluir movimentação", message: "Esta ação não pode ser desfeita.", confirmLabel: "Excluir" });
@@ -170,8 +197,49 @@ export default function Dashboard() {
 
       {adding && (
         <Modal title="Nova movimentação" onClose={() => setAdding(false)}>
-          <TransactionForm onSubmit={handleAddSave}
-            onCancel={() => setAdding(false)} loading={addLoading} categories={categories} />
+          <div className="space-y-5">
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              {ENTRY_MODES.map(({ v, label }) => {
+                const isActive = entryMode === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setEntryMode(v)}
+                    style={{
+                      flex: 1,
+                      padding: "0.5rem 0.75rem",
+                      borderRadius: "0.75rem",
+                      fontSize: "0.8125rem",
+                      fontWeight: isActive ? 600 : 400,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                      border: `1px solid ${isActive ? "rgba(37,99,235,0.4)" : "var(--border-input)"}`,
+                      backgroundColor: isActive ? "rgba(37,99,235,0.1)" : "transparent",
+                      color: isActive ? "#2563eb" : "var(--text-secondary)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {entryMode === "comum" ? (
+              <TransactionForm onSubmit={handleAddSave}
+                onCancel={() => setAdding(false)} loading={addLoading} categories={categories} />
+            ) : cards.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+                  Você ainda não tem cartões cadastrados. Cadastre um na aba{" "}
+                  <a href="/cartoes" style={{ color: "#2563eb", fontWeight: 600 }}>Cartões</a> primeiro.
+                </p>
+              </div>
+            ) : (
+              <CreditPurchaseForm cards={cards} onSubmit={handleAddPurchaseSave}
+                onCancel={() => setAdding(false)} loading={addLoading} categories={categories} />
+            )}
+          </div>
         </Modal>
       )}
 
@@ -277,28 +345,8 @@ export default function Dashboard() {
           <h2 style={{ color: "var(--text-secondary)", fontSize: "0.875rem", fontWeight: 600 }}>
             Saldo ao longo do tempo
           </h2>
-          <button
-            type="button"
-            onClick={() => setShowCredit(v => !v)}
-            style={{
-              display: "flex", alignItems: "center", gap: "0.375rem",
-              padding: "0.3rem 0.75rem",
-              borderRadius: "999px",
-              fontSize: "0.75rem", fontWeight: 500,
-              cursor: "pointer", transition: "all 0.15s",
-              border: `1px solid ${showCredit ? "rgba(168,85,247,0.45)" : "var(--border-input)"}`,
-              backgroundColor: showCredit ? "rgba(168,85,247,0.1)" : "transparent",
-              color: showCredit ? "#a855f7" : "var(--text-muted)",
-            }}
-          >
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="5" width="20" height="14" rx="2"/>
-              <line x1="2" y1="10" x2="22" y2="10"/>
-            </svg>
-            Fatura crédito
-          </button>
         </div>
-        <BalanceChart data={projection?.chart} loading={loading} showCredit={showCredit} />
+        <BalanceChart data={projection?.chart} loading={loading} />
       </div>
 
       {/* Filters + Table */}
@@ -352,13 +400,13 @@ export default function Dashboard() {
             <button onClick={load} className="btn-ghost text-xs" style={{ border: "1px solid var(--border)" }}>
               Atualizar
             </button>
-            <button onClick={() => setAdding(true)} className="btn-primary text-xs flex items-center gap-1.5">
+            <button onClick={() => { setEntryMode("comum"); setAdding(true); }} className="btn-primary text-xs flex items-center gap-1.5">
               <IconPlus className="w-3.5 h-3.5" /> Nova
             </button>
           </div>
         </div>
 
-        <TransactionTable rows={filteredRows} loading={loading} onEdit={handleOpenEdit} onDelete={handleDelete} onBulkDelete={handleBulkDelete} />
+        <TransactionTable rows={filteredRows} loading={loading} onEdit={handleOpenEdit} onDelete={handleDelete} onBulkDelete={handleBulkDelete} cards={cards} />
       </div>
     </div>
   );

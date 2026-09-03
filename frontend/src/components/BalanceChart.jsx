@@ -1,6 +1,6 @@
 import {
-  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer, Legend,
+  ComposedChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 import { formatBRL, formatDate } from "../utils/format";
 
@@ -13,7 +13,6 @@ function downsample(data, maxPoints = 200) {
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const balance = payload.find(p => p.dataKey === "balance");
-  const credit  = payload.find(p => p.dataKey === "credit_bill");
   return (
     <div style={{
       backgroundColor: "var(--bg-card)",
@@ -30,11 +29,6 @@ function CustomTooltip({ active, payload, label }) {
           {formatBRL(balance.value)}
         </p>
       )}
-      {credit && credit.value != null && (
-        <p style={{ fontWeight: 600, fontSize: "0.875rem", color: "#a855f7", marginTop: "0.25rem" }}>
-          Fatura: {formatBRL(credit.value)}
-        </p>
-      )}
     </div>
   );
 }
@@ -43,13 +37,12 @@ function isDark() {
   return document.documentElement.getAttribute("data-theme") === "dark";
 }
 
-export default function BalanceChart({ data, loading, showCredit = false }) {
+export default function BalanceChart({ data, loading }) {
   const dark = isDark();
 
   const gridColor  = dark ? "#1f2937" : "#f3f4f6";
   const axisColor  = dark ? "#6b7280" : "#9ca3af";
   const strokePos  = dark ? "#60a5fa" : "#3b82f6";
-  const creditColor = dark ? "#c084fc" : "#a855f7";
 
   if (loading) return (
     <div style={{ height: "16rem", backgroundColor: "var(--bg-muted)", borderRadius: "0.75rem" }} className="animate-pulse" />
@@ -63,7 +56,6 @@ export default function BalanceChart({ data, loading, showCredit = false }) {
 
   const sampled  = downsample(data);
   const hasNeg   = sampled.some(d => d.balance < 0);
-  const hasCredit = showCredit && sampled.some(d => d.credit_bill != null);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -102,21 +94,6 @@ export default function BalanceChart({ data, loading, showCredit = false }) {
           dot={false}
           activeDot={{ r: 4, fill: strokePos, strokeWidth: 0 }}
         />
-
-        {/* Fatura de crédito mensal */}
-        {showCredit && (
-          <Line
-            type="monotone"
-            dataKey="credit_bill"
-            name="Fatura crédito"
-            stroke={creditColor}
-            strokeWidth={2}
-            strokeDasharray="6 3"
-            dot={{ r: 4, fill: creditColor, strokeWidth: 0 }}
-            activeDot={{ r: 5, fill: creditColor, strokeWidth: 0 }}
-            connectNulls={false}
-          />
-        )}
       </ComposedChart>
     </ResponsiveContainer>
   );

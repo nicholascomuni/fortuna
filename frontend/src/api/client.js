@@ -66,6 +66,27 @@ export const api = {
   // Categories
   getCategories: () => request("/categories"),
 
+  // Credit cards
+  getCards: () => request("/cards"),
+  createCard: (data) =>
+    request("/cards", { method: "POST", body: JSON.stringify(data) }),
+  updateCard: (id, data) =>
+    request(`/cards/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteCard: (id) =>
+    request(`/cards/${id}`, { method: "DELETE" }),
+
+  // Credit purchases
+  getCreditPurchases: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/credit-purchases${qs ? "?" + qs : ""}`);
+  },
+  createCreditPurchase: (data) =>
+    request("/credit-purchases", { method: "POST", body: JSON.stringify(data) }),
+  updateCreditPurchase: (id, data) =>
+    request(`/credit-purchases/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteCreditPurchase: (id) =>
+    request(`/credit-purchases/${id}`, { method: "DELETE" }),
+
   // Profile
   updateProfile: (data) =>
     request("/auth/profile", { method: "PUT", body: JSON.stringify(data) }),

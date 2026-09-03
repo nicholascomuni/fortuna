@@ -74,7 +74,6 @@ export default function Simulator() {
 
   const [categories, setCategories]           = useState([]);
   const [modal, setModal]                     = useState(null); // null | { mode: "add" | "edit", tx }
-  const [showCredit, setShowCredit]           = useState(false);
   const debounceRef                           = useRef(null);
 
   // ── load real data on mount / date change ──────────────────────────────────
@@ -189,31 +188,14 @@ export default function Simulator() {
             <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", fontWeight: 600 }}>
               Projeção atual
             </p>
-            <button
-              type="button"
-              onClick={() => setShowCredit(v => !v)}
-              style={{
-                display: "flex", alignItems: "center", gap: "0.375rem",
-                padding: "0.3rem 0.75rem", borderRadius: "999px",
-                fontSize: "0.75rem", fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
-                border: `1px solid ${showCredit ? "rgba(168,85,247,0.45)" : "var(--border-input)"}`,
-                backgroundColor: showCredit ? "rgba(168,85,247,0.1)" : "transparent",
-                color: showCredit ? "#a855f7" : "var(--text-muted)",
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
-              </svg>
-              Fatura
-            </button>
           </div>
-          <BalanceChart data={realProjection?.chart} loading={realLoading} showCredit={showCredit} />
+          <BalanceChart data={realProjection?.chart} loading={realLoading} />
         </div>
         <div className="card p-5" style={{ border: "1px solid rgba(37,99,235,0.35)" }}>
           <p style={{ color: "#2563eb", fontSize: "0.875rem", fontWeight: 600, marginBottom: "1rem" }}>
             Cenário simulado {simLoading && <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: "0.75rem" }}>atualizando…</span>}
           </p>
-          <BalanceChart data={simProjection?.chart} loading={realLoading || (simLoading && !simProjection)} showCredit={showCredit} />
+          <BalanceChart data={simProjection?.chart} loading={realLoading || (simLoading && !simProjection)} />
         </div>
       </div>
 

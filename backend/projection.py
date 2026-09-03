@@ -104,6 +104,8 @@ def _make_occurrence(tx, occurrence_date: date, amount: float = None) -> dict:
         "payment_method": getattr(tx, "payment_method", None) or "a_vista",
         "interest_rate": getattr(tx, "interest_rate", None),
         "is_interest_child": getattr(tx, "is_interest_child", False) or False,
+        "source": getattr(tx, "source", None),
+        "source_card_id": getattr(tx, "source_card_id", None),
     }
 
 
@@ -158,22 +160,14 @@ def build_projection(transactions, initial_balance: float, range_start: date, ra
 
 
 def _build_chart_series(occurrences: list, initial_balance: float, range_start: date, range_end: date) -> list:
-    """Aggregate occurrences by day and produce a cumulative balance + monthly credit bill series."""
-    # Group net change per day
+    """Aggregate occurrences by day and produce a cumulative balance series."""
     daily: dict[str, float] = {}
-    # Credit bill accumulated per month (key = "YYYY-MM")
-    monthly_credit: dict[str, float] = {}
 
     for occ in occurrences:
         d = occ["date"]
         delta = occ["amount"] if occ["kind"] == "receita" else -occ["amount"]
         daily[d] = daily.get(d, 0.0) + delta
 
-        if occ.get("payment_method") == "credito" and occ["kind"] == "despesa":
-            month_key = d[:7]  # "YYYY-MM"
-            monthly_credit[month_key] = monthly_credit.get(month_key, 0.0) + occ["amount"]
-
-    # Build day-by-day series; attach credit_bill on the last day of each month
     series = []
     balance = float(initial_balance)
     current = range_start
@@ -182,18 +176,7 @@ def _build_chart_series(occurrences: list, initial_balance: float, range_start: 
         if ds in daily:
             balance += daily[ds]
 
-        point = {"date": ds, "balance": round(balance, 2)}
-
-        # Attach the credit bill on the first day of the *next* month (= billing date)
-        month_key = ds[:7]
-        if month_key in monthly_credit:
-            # Emit on last day of this month so it aligns with the period it represents
-            next_month = (current.replace(day=1) + relativedelta(months=1))
-            last_day_of_month = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
-            if ds == last_day_of_month or current == range_end:
-                point["credit_bill"] = round(monthly_credit[month_key], 2)
-
-        series.append(point)
+        series.append({"date": ds, "balance": round(balance, 2)})
         current += timedelta(days=1)
 
     return series

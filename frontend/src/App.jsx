@@ -4,6 +4,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import PrivateRoute from "./components/PrivateRoute";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
+import CreditCards from "./pages/CreditCards";
 import RecurringTransactions from "./pages/RecurringTransactions";
 import Simulator from "./pages/Simulator";
 import Settings from "./pages/Settings";
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/cadastro" element={<Cadastro />} />
             <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
+            <Route path="/cartoes"      element={<PrivateRoute><Layout><CreditCards /></Layout></PrivateRoute>} />
             <Route path="/relatorios"   element={<PrivateRoute><Layout><Reports /></Layout></PrivateRoute>} />
             <Route path="/recorrentes"  element={<PrivateRoute><Layout><RecurringTransactions /></Layout></PrivateRoute>} />
             <Route path="/simulador"     element={<PrivateRoute><Layout><Simulator /></Layout></PrivateRoute>} />

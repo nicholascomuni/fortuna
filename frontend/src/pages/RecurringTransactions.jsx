@@ -147,9 +147,8 @@ export default function RecurringTransactions() {
                     </td>
                     <td style={{ padding: "0.875rem 1rem" }}>
                       {row.payment_method && row.payment_method !== "a_vista" ? (
-                        <span style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: row.payment_method === "credito" ? "rgba(37,99,235,0.12)" : "rgba(107,114,128,0.12)", color: row.payment_method === "credito" ? "#2563eb" : "var(--text-muted)" }}>
-                          {row.payment_method === "credito" ? "Crédito" : "Débito"}
-                          {row.payment_method === "credito" && row.installments > 1 ? ` ${row.installments}×` : ""}
+                        <span style={{ fontSize: "0.7rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(107,114,128,0.12)", color: "var(--text-muted)" }}>
+                          Débito
                         </span>
                       ) : (
                         <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>À vista</span>

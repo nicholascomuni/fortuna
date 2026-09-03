@@ -102,8 +102,9 @@ function BulkBar({ count, onDelete, onClear }) {
 
 // ── Main table ────────────────────────────────────────────────────────────────
 
-export default function TransactionTable({ rows, loading, onEdit, onDelete, onBulkDelete }) {
+export default function TransactionTable({ rows, loading, onEdit, onDelete, onBulkDelete, cards = [] }) {
   const [selected, setSelected] = useState(new Set());
+  const cardById = new Map(cards.map(c => [c.id, c]));
 
   // Clear selection when rows change (filter, reload)
   useEffect(() => setSelected(new Set()), [rows]);
@@ -217,6 +218,11 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                         % rendimento
                       </span>
                     )}
+                    {row.source === "credit_invoice" && (
+                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(99,102,241,0.12)", color: "#6366f1" }}>
+                        Fatura{cardById.get(row.source_card_id) ? `: ${cardById.get(row.source_card_id).name}` : ""}
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: "0.75rem" }}>
                     {row.kind === "receita"
@@ -243,26 +249,30 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                   )}
                   {(onEdit || onDelete) && (
                     <td style={{ padding: "0.75rem", textAlign: "right" }}>
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {onEdit && (
-                          <button onClick={() => onEdit(row)} title="Editar"
-                            style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
-                            onMouseEnter={e => { e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "rgba(37,99,235,0.1)"; }}
-                            onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
-                          >
-                            <IconEdit />
-                          </button>
-                        )}
-                        {onDelete && (
-                          <button onClick={() => onDelete(row)} title="Excluir"
-                            style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
-                            onMouseEnter={e => { e.currentTarget.style.color = "#e11d48"; e.currentTarget.style.backgroundColor = "rgba(225,29,72,0.1)"; }}
-                            onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
-                          >
-                            <IconTrash />
-                          </button>
-                        )}
-                      </div>
+                      {row.source === "credit_invoice" ? (
+                        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>gerada automaticamente</span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {onEdit && (
+                            <button onClick={() => onEdit(row)} title="Editar"
+                              style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "rgba(37,99,235,0.1)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
+                            >
+                              <IconEdit />
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button onClick={() => onDelete(row)} title="Excluir"
+                              style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.color = "#e11d48"; e.currentTarget.style.backgroundColor = "rgba(225,29,72,0.1)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
+                            >
+                              <IconTrash />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   )}
                 </tr>
