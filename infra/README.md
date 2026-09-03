@@ -57,14 +57,11 @@ terraform apply
 terraform output apprunner_service_url
 ```
 
-**5. Registre o ARN do serviço** para o workflow disparar deploys imediatos (sem isso ele ainda funciona, só que via evento assíncrono do ECR, que pode levar alguns minutos a mais):
-
-```bat
-terraform output -raw apprunner_service_arn | gh variable set APPRUNNER_SERVICE_ARN
-```
-
-Pronto — daqui pra frente, todo push em `backend/**` builda, publica e faz o
-App Runner redeployar sozinho.
+Pronto — daqui pra frente, todo push em `backend/**` builda, publica no ECR
+e o App Runner redeploya sozinho (`auto_deployments_enabled = true` reage ao
+push da tag `:latest`; o workflow não chama `start-deployment` porque isso
+corre risco de bater um deploy já em andamento e falhar com "isn't in
+RUNNING state" mesmo quando o deploy real deu certo).
 
 ## Depois de ter o domínio do Cloudflare Pages
 

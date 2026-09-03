@@ -34,9 +34,8 @@ jobs:
           docker push "$REPOSITORY:latest"
           docker push "$REPOSITORY:${{ github.sha }}"
 
-      # ECR push already triggers App Runner's auto-deployment, but this
-      # makes the rollout start immediately instead of waiting on the event.
-      - name: Trigger App Runner deployment
-        if: vars.APPRUNNER_SERVICE_ARN != ''
-        run: |
-          aws apprunner start-deployment --service-arn "${{ vars.APPRUNNER_SERVICE_ARN }}"
+      # App Runner has auto_deployments_enabled = true, so the push above
+      # already triggers the rollout on its own. Calling
+      # `aws apprunner start-deployment` here too used to race against that
+      # auto-trigger and fail with "isn't in RUNNING state" even though the
+      # deploy had already started — so we don't call it.
