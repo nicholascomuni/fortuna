@@ -11,34 +11,45 @@ from routes import bp as api_bp
 from auth import auth_bp
 
 
+def _add_column_if_missing(conn, table: str, column: str, ddl: str):
+    """
+    Add a column, tolerating a concurrent worker having just added it.
+
+    Gunicorn boots multiple workers that each call create_app() at roughly
+    the same time; a column-existence check followed by a separate ALTER is
+    not atomic, so two workers can both see the column missing and race to
+    add it. Only one wins — the other must not crash the whole worker (which
+    is what happened in production: the losing worker's DuplicateColumn
+    exception failed the app boot and triggered an App Runner rollback).
+    """
+    from sqlalchemy import text, inspect as sa_inspect
+    from sqlalchemy.exc import ProgrammingError, OperationalError
+
+    insp = sa_inspect(conn)
+    existing = {c["name"] for c in insp.get_columns(table)}
+    if column in existing:
+        return
+    try:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+        conn.commit()
+    except (ProgrammingError, OperationalError):
+        # Another worker already added it concurrently — safe to ignore.
+        conn.rollback()
+
+
 def _migrate(database):
     """Add columns introduced after initial schema creation."""
     with database.engine.connect() as conn:
-        from sqlalchemy import text, inspect as sa_inspect
-        insp = sa_inspect(database.engine)
-        settings_cols = {c["name"] for c in insp.get_columns("settings")}
-        if "currency" not in settings_cols:
-            conn.execute(text("ALTER TABLE settings ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'BRL'"))
-        if "language" not in settings_cols:
-            conn.execute(text("ALTER TABLE settings ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'pt-BR'"))
-        if "credit_migration_done" not in settings_cols:
-            conn.execute(text("ALTER TABLE settings ADD COLUMN credit_migration_done BOOLEAN NOT NULL DEFAULT false"))
-        tx_cols = {c["name"] for c in insp.get_columns("transactions")}
-        if "interest_rate" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN interest_rate FLOAT"))
-        if "interest_period" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN interest_period VARCHAR(10)"))
-        if "interest_count" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN interest_count INTEGER"))
-        if "parent_id" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN parent_id INTEGER REFERENCES transactions(id)"))
-        if "is_interest_child" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN is_interest_child BOOLEAN NOT NULL DEFAULT false"))
-        if "source" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN source VARCHAR(20)"))
-        if "source_card_id" not in tx_cols:
-            conn.execute(text("ALTER TABLE transactions ADD COLUMN source_card_id INTEGER REFERENCES credit_cards(id)"))
-        conn.commit()
+        _add_column_if_missing(conn, "settings", "currency", "VARCHAR(10) NOT NULL DEFAULT 'BRL'")
+        _add_column_if_missing(conn, "settings", "language", "VARCHAR(10) NOT NULL DEFAULT 'pt-BR'")
+        _add_column_if_missing(conn, "settings", "credit_migration_done", "BOOLEAN NOT NULL DEFAULT false")
+        _add_column_if_missing(conn, "transactions", "interest_rate", "FLOAT")
+        _add_column_if_missing(conn, "transactions", "interest_period", "VARCHAR(10)")
+        _add_column_if_missing(conn, "transactions", "interest_count", "INTEGER")
+        _add_column_if_missing(conn, "transactions", "parent_id", "INTEGER REFERENCES transactions(id)")
+        _add_column_if_missing(conn, "transactions", "is_interest_child", "BOOLEAN NOT NULL DEFAULT false")
+        _add_column_if_missing(conn, "transactions", "source", "VARCHAR(20)")
+        _add_column_if_missing(conn, "transactions", "source_card_id", "INTEGER REFERENCES credit_cards(id)")
 
 
 def _migrate_legacy_credit_transactions(database):
@@ -52,7 +63,27 @@ def _migrate_legacy_credit_transactions(database):
     from models import User, Settings, Transaction, CreditCard, CreditPurchase, CardCharge
     import credit_cards as cc
 
-    users = User.query.join(Settings).filter(Settings.credit_migration_done.is_(False)).all()
+    # Claim each user's migration with an atomic UPDATE before doing any work.
+    # Gunicorn boots multiple workers that each call create_app() at roughly
+    # the same time; only the worker whose UPDATE actually flips a row from
+    # false->true (rowcount == 1) proceeds — this avoids two workers both
+    # reading credit_migration_done=false and duplicating the migration.
+    candidate_ids = [
+        uid for (uid,) in
+        db.session.query(User.id).join(Settings).filter(Settings.credit_migration_done.is_(False)).all()
+    ]
+    claimed_ids = []
+    for uid in candidate_ids:
+        result = db.session.execute(
+            Settings.__table__.update()
+            .where(Settings.user_id == uid, Settings.credit_migration_done.is_(False))
+            .values(credit_migration_done=True)
+        )
+        if result.rowcount == 1:
+            claimed_ids.append(uid)
+    database.session.commit()
+
+    users = User.query.filter(User.id.in_(claimed_ids)).all() if claimed_ids else []
 
     for user in users:
         legacy_txs = (
@@ -118,8 +149,6 @@ def _migrate_legacy_credit_transactions(database):
             database.session.flush()
             for (y, m) in touched_months:
                 cc.sync_invoice_transaction(user.id, placeholder_card, y, m)
-
-        user.settings.credit_migration_done = True
 
     database.session.commit()
 
