@@ -2,18 +2,22 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
 import { useConfirm } from "../components/ConfirmDialog";
 import CreditCardVisual from "../components/CreditCardVisual";
-import CreditPurchaseForm from "../components/CreditPurchaseForm";
+import TransactionForm from "../components/TransactionForm";
 import CardDetailModal from "../components/CardDetailModal";
 import { IconPlus, IconEdit, IconTrash, IconX, IconCreditCard } from "../components/Icons";
 
 const COLOR_PRESETS = ["#4f46e5", "#059669", "#e11d48", "#ea580c", "#0891b2", "#7c3aed"];
 
-const emptyCard = { name: "", bank: "", due_day: "10", credit_limit: "", color: COLOR_PRESETS[0] };
+const emptyCard = { name: "", bank: "", due_day: "10", credit_limit: "", color: COLOR_PRESETS[0], account_id: "" };
+
+// Stable reference so TransactionForm's `initial` effect doesn't refire
+// (and reset in-progress input) on every CreditCards re-render.
+const CREDIT_INITIAL = { payment_method: "cartao_credito", kind: "despesa" };
 
 function Modal({ title, onClose, children }) {
   return (
     <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 40, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(4px)" }}>
-      <div className="card w-full max-w-lg p-6" style={{ boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)" }}>
+      <div className="card w-full max-w-lg p-6" style={{ boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between mb-5">
           <h2 style={{ color: "var(--text-base)", fontSize: "0.9375rem", fontWeight: 600 }}>{title}</h2>
           <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg"><IconX className="w-4 h-4" /></button>
@@ -33,12 +37,13 @@ function Toast({ toast }) {
   );
 }
 
-function CardForm({ initial, onSubmit, onCancel, loading }) {
+function CardForm({ initial, accounts, onSubmit, onCancel, loading }) {
   const [form, setForm] = useState(initial ? {
     ...emptyCard, ...initial,
     due_day: String(initial.due_day ?? "10"),
     credit_limit: initial.credit_limit != null ? String(initial.credit_limit) : "",
     color: initial.color || COLOR_PRESETS[0],
+    account_id: initial.account_id != null ? String(initial.account_id) : "",
   } : emptyCard);
   const [errors, setErrors] = useState([]);
 
@@ -54,6 +59,7 @@ function CardForm({ initial, onSubmit, onCancel, loading }) {
         due_day: parseInt(form.due_day),
         credit_limit: form.credit_limit || null,
         color: form.color,
+        account_id: form.account_id || null,
       });
     } catch (err) { setErrors([err.message]); }
   }
@@ -87,6 +93,17 @@ function CardForm({ initial, onSubmit, onCancel, loading }) {
         <input type="number" min="0.01" step="0.01" value={form.credit_limit}
           onChange={e => set("credit_limit", e.target.value)} placeholder="0,00" className="input" />
       </div>
+      {accounts.length > 0 && (
+        <div>
+          <label className="label">Conta de pagamento (opcional)</label>
+          <select value={form.account_id} onChange={e => set("account_id", e.target.value)} className="input">
+            <option value="">Sem conta específica</option>
+            {accounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name}{a.bank ? ` — ${a.bank}` : ""}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <label className="label">Cor</label>
         <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
@@ -116,6 +133,7 @@ function CardForm({ initial, onSubmit, onCancel, loading }) {
 export default function CreditCards() {
   const [cards, setCards] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [cardModal, setCardModal] = useState(null); // null | {} (new) | card (edit)
@@ -132,8 +150,8 @@ export default function CreditCards() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cardsData, cats] = await Promise.all([api.getCards(), api.getCategories()]);
-      setCards(cardsData); setCategories(cats);
+      const [cardsData, cats, accs] = await Promise.all([api.getCards(), api.getCategories(), api.getAccounts()]);
+      setCards(cardsData); setCategories(cats); setAccounts(accs);
     } catch (e) { showToast(e.message, "error"); }
     finally { setLoading(false); }
   }, []);
@@ -179,15 +197,16 @@ export default function CreditCards() {
 
       {cardModal && (
         <Modal title={cardModal.id ? "Editar cartão" : "Adicionar cartão"} onClose={() => setCardModal(null)}>
-          <CardForm initial={cardModal.id ? cardModal : null} onSubmit={handleCardSave}
+          <CardForm initial={cardModal.id ? cardModal : null} accounts={accounts} onSubmit={handleCardSave}
             onCancel={() => setCardModal(null)} loading={saveLoading} />
         </Modal>
       )}
 
       {purchaseModal && (
         <Modal title="Nova compra no cartão" onClose={() => setPurchaseModal(false)}>
-          <CreditPurchaseForm cards={cards} onSubmit={handlePurchaseSave}
-            onCancel={() => setPurchaseModal(false)} loading={saveLoading} categories={categories} />
+          <TransactionForm cards={cards} categories={categories} onSubmit={handlePurchaseSave}
+            onCancel={() => setPurchaseModal(false)} loading={saveLoading}
+            initial={CREDIT_INITIAL} />
         </Modal>
       )}
 
@@ -239,7 +258,8 @@ export default function CreditCards() {
             <div key={card.id} className="space-y-2">
               <CreditCardVisual
                 card={card}
-                invoice={card.current_month_invoice}
+                invoice={card.next_invoice}
+                invoiceDate={card.next_invoice_date}
                 openBalance={card.open_balance}
                 limitUsedPct={card.limit_used_pct}
                 onClick={() => setDetailCard(card)}

@@ -1,4 +1,6 @@
 // Thin-stroke SVG icons (24×24 viewBox, stroke-based)
+import { useId } from "react";
+
 const base = "stroke-current fill-none stroke-2 stroke-linecap-round stroke-linejoin-round";
 
 export function IconChart({ className = "w-5 h-5" }) {
@@ -279,6 +281,76 @@ export function IconBank({ className = "w-5 h-5" }) {
       <line x1="10" y1="8" x2="10" y2="21" />
       <line x1="14" y1="8" x2="14" y2="21" />
       <line x1="19" y1="8" x2="19" y2="21" />
+    </svg>
+  );
+}
+
+export function IconMaximize({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+
+export function IconMenu({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
+export function IconUserCircle({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="10" r="3" />
+      <path d="M6.5 19a5.5 5.5 0 0 1 11 0" />
+    </svg>
+  );
+}
+
+export function IconSparkles({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" />
+      <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z" />
+    </svg>
+  );
+}
+
+export function IconSend({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  );
+}
+
+// Fortuna wordmark — a solid amber circle with a thick "F" punched out of
+// it. The F is a true cutout (an SVG mask), not a fixed color, so whatever
+// sits behind the icon shows through — the page background, the header bar,
+// etc. — and it stays correct across light/dark theme without needing to
+// know the exact color at render time. Self-contained (this IS the whole
+// badge — no wrapping colored container needed around it).
+export function IconFortuna({ className = "w-5 h-5" }) {
+  const maskId = useId();
+  return (
+    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+        <rect width="24" height="24" fill="#fff" />
+        <rect x="8" y="5" width="3.6" height="14" rx="1" fill="#000" />
+        <rect x="8" y="5" width="8.5" height="3.6" rx="1" fill="#000" />
+        <rect x="8" y="10.5" width="6" height="3.6" rx="1" fill="#000" />
+      </mask>
+      <circle cx="12" cy="12" r="11" fill="#fbbf24" mask={`url(#${maskId})`} />
     </svg>
   );
 }

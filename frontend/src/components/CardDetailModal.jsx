@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { api } from "../api/client";
 import { formatBRL, formatDate } from "../utils/format";
 import { useConfirm } from "./ConfirmDialog";
-import CreditPurchaseForm from "./CreditPurchaseForm";
+import TransactionForm from "./TransactionForm";
+import EntryDetailModal from "./EntryDetailModal";
 import { IconEdit, IconTrash, IconX, IconCreditCard } from "./Icons";
 
 function Toast({ toast }) {
@@ -19,6 +20,8 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingPurchase, setEditingPurchase] = useState(null); // null | purchase
+  const [detailPurchase, setDetailPurchase] = useState(null);
+  const [detailInvoice, setDetailInvoice] = useState(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const { confirm, confirmEl } = useConfirm();
@@ -54,6 +57,18 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
     } catch (err) { showToast(err.message, "error"); throw err; }
     finally { setSaveLoading(false); }
   }
+
+  // Stable reference so TransactionForm's `initial` effect doesn't refire
+  // (and reset in-progress input) whenever saveLoading changes this modal's render.
+  const editingInitial = useMemo(() => (
+    editingPurchase ? {
+      ...editingPurchase,
+      amount: editingPurchase.total_amount,
+      date: editingPurchase.purchase_date,
+      payment_method: "cartao_credito",
+      kind: "despesa",
+    } : null
+  ), [editingPurchase]);
 
   async function handleDelete(purchase) {
     const ok = await confirm({
@@ -94,8 +109,8 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
         {editingPurchase ? (
           <div className="space-y-4">
             <p style={{ color: "var(--text-secondary)", fontSize: "0.8125rem", fontWeight: 600 }}>Editar compra</p>
-            <CreditPurchaseForm
-              initial={editingPurchase}
+            <TransactionForm
+              initial={editingInitial}
               cards={cards}
               categories={categories}
               loading={saveLoading}
@@ -122,7 +137,8 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
                 <div className="space-y-1.5">
                   {purchases.map(p => (
                     <div key={p.id} className="group flex items-center justify-between"
-                      style={{ padding: "0.625rem 0.75rem", borderRadius: "0.75rem", border: "1px solid var(--border)" }}
+                      onClick={() => setDetailPurchase(p)}
+                      style={{ padding: "0.625rem 0.75rem", borderRadius: "0.75rem", border: "1px solid var(--border)", cursor: "pointer" }}
                     >
                       <div style={{ minWidth: 0 }}>
                         <p style={{ color: "var(--text-base)", fontWeight: 500, fontSize: "0.875rem" }}>
@@ -141,7 +157,7 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
                         <span style={{ fontWeight: 600, color: "#f43f5e", fontSize: "0.875rem", whiteSpace: "nowrap" }}>
                           {formatBRL(p.total_amount)}
                         </span>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                           <button onClick={() => setEditingPurchase(p)} title="Editar"
                             style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
                             onMouseEnter={e => { e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "rgba(37,99,235,0.1)"; }}
@@ -175,7 +191,8 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
                 <div className="space-y-1.5">
                   {invoices.map(inv => (
                     <div key={inv.id} className="flex items-center justify-between"
-                      style={{ padding: "0.625rem 0.75rem", borderRadius: "0.75rem", backgroundColor: "var(--bg-muted)" }}
+                      onClick={() => setDetailInvoice(inv)}
+                      style={{ padding: "0.625rem 0.75rem", borderRadius: "0.75rem", backgroundColor: "var(--bg-muted)", cursor: "pointer" }}
                     >
                       <div className="flex items-center gap-2">
                         <IconCreditCard className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} />
@@ -195,6 +212,36 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
           </div>
         )}
       </div>
+
+      {detailPurchase && (
+        <EntryDetailModal
+          title={detailPurchase.description}
+          fields={[
+            { label: "Valor", value: formatBRL(detailPurchase.total_amount), strong: true },
+            { label: "Data da compra", value: formatDate(detailPurchase.purchase_date) },
+            { label: "Categoria", value: detailPurchase.category },
+            { label: "Cartão", value: card.name },
+            ...(detailPurchase.installments > 1 ? [{ label: "Parcelas", value: `${detailPurchase.installments}x` }] : []),
+            ...(detailPurchase.type === "recorrente" ? [{ label: "Recorrência", value: detailPurchase.frequency }] : []),
+          ]}
+          onClose={() => setDetailPurchase(null)}
+          onEdit={() => { setDetailPurchase(null); setEditingPurchase(detailPurchase); }}
+          onDelete={() => { setDetailPurchase(null); handleDelete(detailPurchase); }}
+        />
+      )}
+
+      {detailInvoice && (
+        <EntryDetailModal
+          title={`Fatura ${card.name}`}
+          badge={{ label: "Gerada automaticamente", bg: "rgba(99,102,241,0.12)", color: "#6366f1" }}
+          fields={[
+            { label: "Valor", value: formatBRL(detailInvoice.amount), strong: true },
+            { label: "Vencimento", value: formatDate(detailInvoice.date) },
+          ]}
+          note="Esta fatura é gerada automaticamente a partir das compras no cartão."
+          onClose={() => setDetailInvoice(null)}
+        />
+      )}
     </div>
   );
 }

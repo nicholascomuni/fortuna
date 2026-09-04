@@ -6,3 +6,9 @@ bcrypt==5.0.0
 python-dateutil==2.9.0
 psycopg[binary]==3.2.3
 gunicorn==23.0.0
+openai==3.8.0
+python-dotenv==1.2.3
+truststore==0.10.4
+pyotp==2.10.0
+qrcode[pil]==8.2
+pillow==12.3.0

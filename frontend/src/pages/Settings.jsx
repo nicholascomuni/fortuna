@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import {
   IconUser, IconGlobe, IconDownload, IconUpload,
-  IconSun, IconMoon, IconLock, IconCheck,
+  IconSun, IconMoon, IconLock, IconCheck, IconAlertTriangle,
 } from "../components/Icons";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -60,6 +60,44 @@ function Toast({ toast }) {
   );
 }
 
+function EmailVerifyBanner({ user, showToast }) {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  if (!user || user.email_verified) return null;
+
+  async function handleResend() {
+    setSending(true);
+    try {
+      await api.resendVerification();
+      setSent(true);
+      showToast("E-mail de verificação reenviado.");
+    } catch (err) { showToast(err.message, "error"); }
+    finally { setSending(false); }
+  }
+
+  return (
+    <div style={{
+      backgroundColor: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)",
+      borderRadius: "0.75rem", padding: "0.75rem 1rem",
+      display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap",
+    }}>
+      <div className="flex items-center gap-2">
+        <IconAlertTriangle className="w-4 h-4" style={{ color: "#b45309", flexShrink: 0 }} />
+        <p style={{ color: "#b45309", fontSize: "0.8125rem" }}>Seu e-mail ainda não foi verificado.</p>
+      </div>
+      <button
+        onClick={handleResend}
+        disabled={sending || sent}
+        className="text-xs font-semibold"
+        style={{ color: "#b45309", background: "transparent", border: "none", cursor: sending || sent ? "default" : "pointer", textDecoration: "underline", flexShrink: 0 }}
+      >
+        {sent ? "Reenviado!" : sending ? "Enviando…" : "Reenviar e-mail"}
+      </button>
+    </div>
+  );
+}
+
 // ── tabs ──────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -85,6 +123,8 @@ export default function Settings() {
   return (
     <div className="space-y-5 max-w-2xl">
       <Toast toast={toast} />
+
+      <EmailVerifyBanner user={user} showToast={showToast} />
 
       {/* Header */}
       <div>
@@ -210,7 +250,132 @@ function ProfileTab({ user, setUser, showToast }) {
           </div>
         </form>
       </Section>
+
+      <TwoFactorSection user={user} setUser={setUser} showToast={showToast} />
     </div>
+  );
+}
+
+// ── Two-factor authentication section ────────────────────────────────────────
+
+function TwoFactorSection({ user, setUser, showToast }) {
+  const [setupData, setSetupData] = useState(null); // null | { secret, qr_code }
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showDisable, setShowDisable] = useState(false);
+  const [disablePw, setDisablePw] = useState("");
+
+  async function startSetup() {
+    setLoading(true);
+    try {
+      const data = await api.setup2fa();
+      setSetupData(data);
+    } catch (err) { showToast(err.message, "error"); }
+    finally { setLoading(false); }
+  }
+
+  async function confirmEnable(e) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const updated = await api.enable2fa(code);
+      setUser(updated);
+      setSetupData(null);
+      setCode("");
+      showToast("Autenticação em duas etapas ativada!");
+    } catch (err) { showToast(err.message, "error"); }
+    finally { setLoading(false); }
+  }
+
+  async function confirmDisable(e) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const updated = await api.disable2fa(disablePw);
+      setUser(updated);
+      setShowDisable(false);
+      setDisablePw("");
+      showToast("Autenticação em duas etapas desativada.");
+    } catch (err) { showToast(err.message, "error"); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Section title="Autenticação em duas etapas" icon={IconLock}>
+      {user?.totp_enabled ? (
+        showDisable ? (
+          <form onSubmit={confirmDisable} className="space-y-3">
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+              Digite sua senha atual para desativar a autenticação em duas etapas.
+            </p>
+            <input
+              type="password" value={disablePw} onChange={e => setDisablePw(e.target.value)}
+              required autoFocus autoComplete="current-password" className="input" placeholder="Senha atual"
+            />
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => { setShowDisable(false); setDisablePw(""); }} className="btn-ghost text-sm" style={{ padding: "0.5rem 1rem" }}>
+                Cancelar
+              </button>
+              <button
+                type="submit" disabled={loading}
+                className="text-sm"
+                style={{ padding: "0.5rem 1rem", borderRadius: "0.75rem", fontWeight: 600, cursor: "pointer", border: "1px solid rgba(225,29,72,0.35)", backgroundColor: "rgba(225,29,72,0.1)", color: "#e11d48" }}
+              >
+                {loading ? "Desativando…" : "Desativar 2FA"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <IconCheck className="w-4 h-4" style={{ color: "#059669" }} />
+              <p style={{ color: "var(--text-base)", fontSize: "0.875rem" }}>Ativada nesta conta.</p>
+            </div>
+            <button onClick={() => setShowDisable(true)} className="btn-ghost text-sm" style={{ color: "#e11d48" }}>
+              Desativar
+            </button>
+          </div>
+        )
+      ) : setupData ? (
+        <form onSubmit={confirmEnable} className="space-y-4">
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+            Escaneie o QR code com um app autenticador (Google Authenticator, Authy, 1Password, etc.)
+            ou digite o código manualmente. Depois confirme com o código de 6 dígitos gerado pelo app.
+          </p>
+          <div className="flex flex-col items-center gap-3">
+            <img
+              src={setupData.qr_code} alt="QR code para configurar 2FA"
+              style={{ width: "10rem", height: "10rem", borderRadius: "0.75rem", background: "#fff", padding: "0.5rem" }}
+            />
+            <code style={{ fontSize: "0.75rem", color: "var(--text-muted)", letterSpacing: "0.05em", wordBreak: "break-all", textAlign: "center" }}>
+              {setupData.secret}
+            </code>
+          </div>
+          <Field label="Código de 6 dígitos">
+            <input
+              type="text" inputMode="numeric" maxLength={6} value={code}
+              onChange={e => setCode(e.target.value)} required autoFocus className="input"
+              placeholder="000000" style={{ textAlign: "center", letterSpacing: "0.2em" }}
+            />
+          </Field>
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={() => { setSetupData(null); setCode(""); }} className="btn-ghost text-sm" style={{ padding: "0.5rem 1rem" }}>
+              Cancelar
+            </button>
+            <SaveBtn loading={loading}>Confirmar e ativar</SaveBtn>
+          </div>
+        </form>
+      ) : (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+            Adicione uma camada extra de segurança exigindo um código do seu app autenticador ao entrar.
+          </p>
+          <button onClick={startSetup} disabled={loading} className="btn-primary text-sm" style={{ flexShrink: 0 }}>
+            {loading ? "Carregando…" : "Ativar 2FA"}
+          </button>
+        </div>
+      )}
+    </Section>
   );
 }
 

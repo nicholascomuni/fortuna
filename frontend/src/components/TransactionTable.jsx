@@ -1,8 +1,32 @@
 import { useState, useEffect, useRef } from "react";
 import { formatBRL, formatDate } from "../utils/format";
 import { IconEdit, IconTrash, IconAlertTriangle, IconChevronDown } from "./Icons";
+import EntryDetailModal from "./EntryDetailModal";
 
 const freqLabel = { semanal: "Semanal", mensal: "Mensal", anual: "Anual" };
+const paymentLabel = { a_vista: "À vista", debito: "Débito", cartao_credito: "Cartão de crédito" };
+
+function buildDetailFields(row, cardById) {
+  const fields = [
+    { label: "Valor", value: `${row.kind === "receita" ? "+" : "−"}${formatBRL(row.amount)}`, strong: true },
+    { label: "Tipo", value: row.kind === "receita" ? "Receita" : "Despesa" },
+    { label: "Data", value: formatDate(row.date) },
+    { label: "Categoria", value: row.category },
+  ];
+  if (row.balance !== undefined) fields.push({ label: "Saldo acumulado", value: formatBRL(row.balance) });
+  if (row.source === "credit_invoice") {
+    fields.push({ label: "Cartão", value: cardById.get(row.source_card_id)?.name });
+  } else if (row.source === "credit_purchase") {
+    fields.push({ label: "Cartão", value: cardById.get(row.card_id)?.name });
+    if (row.installments > 1) fields.push({ label: "Parcelas", value: `${row.installments}x` });
+    if (row.type === "recorrente") fields.push({ label: "Recorrência", value: freqLabel[row.frequency] ?? row.frequency });
+  } else {
+    fields.push({ label: "Forma de pagamento", value: paymentLabel[row.payment_method] ?? row.payment_method });
+    if (row.type === "recorrente") fields.push({ label: "Recorrência", value: freqLabel[row.frequency] ?? row.frequency });
+    if (row.is_interest_child) fields.push({ label: "Origem", value: row.kind === "receita" ? "Rendimento de juros" : "Reajuste por juros" });
+  }
+  return fields;
+}
 
 // ── Checkbox ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +128,7 @@ function BulkBar({ count, onDelete, onClear }) {
 
 export default function TransactionTable({ rows, loading, onEdit, onDelete, onBulkDelete, cards = [] }) {
   const [selected, setSelected] = useState(new Set());
+  const [detailRow, setDetailRow] = useState(null);
   const cardById = new Map(cards.map(c => [c.id, c]));
 
   // Clear selection when rows change (filter, reload)
@@ -170,7 +195,7 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                   onChange={toggleAll}
                 />
               </th>
-              {["Data", "Descrição", "Tipo", "Categoria", "Valor",
+              {["Data", "Descrição", "Categoria", "Valor",
                 ...(showBalance ? ["Saldo"] : []),
                 ...(onEdit || onDelete ? [""] : []),
               ].map(h => (
@@ -186,16 +211,24 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
               const baseBg = isSelected
                 ? "rgba(37,99,235,0.06)"
                 : negBal ? "rgba(225,29,72,0.05)" : "transparent";
+              // Transactions and credit purchases are separate DB tables with
+              // independent auto-increment ids, so a bare numeric id can
+              // collide across the two (e.g. transaction #7 and purchase #7
+              // both landing in this same merged list) — key by row.source
+              // (always set: "credit_invoice" | "credit_purchase" | null for
+              // a plain transaction) plus whichever id field that row has.
+              const rowKey = `${row.source || "transaction"}-${row.transaction_id ?? row.purchase_id ?? `${row.date}-${i}`}`;
 
               return (
                 <tr
-                  key={id ?? (row.purchase_id != null ? `purchase-${row.purchase_id}` : `${row.date}-${i}`)}
+                  key={rowKey}
                   className="group transition-colors"
-                  style={{ borderTop: "1px solid var(--border)", backgroundColor: baseBg }}
+                  style={{ borderTop: "1px solid var(--border)", backgroundColor: baseBg, cursor: "pointer" }}
+                  onClick={() => setDetailRow(row)}
                   onMouseEnter={e => e.currentTarget.style.backgroundColor = "var(--bg-muted)"}
                   onMouseLeave={e => e.currentTarget.style.backgroundColor = baseBg}
                 >
-                  <td style={{ padding: "0.75rem", width: "2.5rem" }}>
+                  <td style={{ padding: "0.75rem", width: "2.5rem" }} onClick={e => e.stopPropagation()}>
                     {id != null && (
                       <Checkbox
                         checked={isSelected}
@@ -214,8 +247,8 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                       </span>
                     )}
                     {row.is_interest_child && (
-                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(16,185,129,0.12)", color: "#10b981" }}>
-                        % rendimento
+                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: row.kind === "receita" ? "rgba(16,185,129,0.12)" : "rgba(225,29,72,0.12)", color: row.kind === "receita" ? "#10b981" : "#e11d48" }}>
+                        {row.kind === "receita" ? "% rendimento" : "% reajuste"}
                       </span>
                     )}
                     {row.source === "credit_invoice" && (
@@ -228,12 +261,6 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                         Compra no cartão{cardById.get(row.card_id) ? `: ${cardById.get(row.card_id).name}` : ""}
                       </span>
                     )}
-                  </td>
-                  <td style={{ padding: "0.75rem" }}>
-                    {row.kind === "receita"
-                      ? <span className="badge-green">↑ Receita</span>
-                      : <span className="badge-red">↓ Despesa</span>
-                    }
                   </td>
                   <td style={{ padding: "0.75rem" }}>
                     {row.category
@@ -253,10 +280,8 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                     </td>
                   )}
                   {(onEdit || onDelete) && (
-                    <td style={{ padding: "0.75rem", textAlign: "right" }}>
-                      {row.source === "credit_invoice" ? (
-                        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>gerada automaticamente</span>
-                      ) : (
+                    <td style={{ padding: "0.75rem", textAlign: "right" }} onClick={e => e.stopPropagation()}>
+                      {row.source !== "credit_invoice" && (
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           {onEdit && (
                             <button onClick={() => onEdit(row)} title="Editar"
@@ -286,6 +311,28 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
           </tbody>
         </table>
       </div>
+
+      {detailRow && (
+        <EntryDetailModal
+          title={detailRow.description}
+          badge={
+            detailRow.source === "credit_invoice"
+              ? { label: `Fatura${cardById.get(detailRow.source_card_id) ? `: ${cardById.get(detailRow.source_card_id).name}` : ""}`, bg: "rgba(99,102,241,0.12)", color: "#6366f1" }
+              : detailRow.source === "credit_purchase"
+              ? { label: `Compra no cartão${cardById.get(detailRow.card_id) ? `: ${cardById.get(detailRow.card_id).name}` : ""}`, bg: "rgba(234,88,12,0.12)", color: "#ea580c" }
+              : detailRow.is_interest_child
+              ? (detailRow.kind === "receita"
+                  ? { label: "% rendimento", bg: "rgba(16,185,129,0.12)", color: "#10b981" }
+                  : { label: "% reajuste", bg: "rgba(225,29,72,0.12)", color: "#e11d48" })
+              : null
+          }
+          fields={buildDetailFields(detailRow, cardById)}
+          note={detailRow.source === "credit_invoice" ? "Esta fatura é gerada automaticamente a partir das compras no cartão. Edite as compras em Cartões." : null}
+          onClose={() => setDetailRow(null)}
+          onEdit={onEdit && detailRow.source !== "credit_invoice" ? () => { setDetailRow(null); onEdit(detailRow); } : null}
+          onDelete={onDelete && detailRow.source !== "credit_invoice" ? () => { setDetailRow(null); onDelete(detailRow); } : null}
+        />
+      )}
     </div>
   );
 }

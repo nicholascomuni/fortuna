@@ -20,7 +20,7 @@ export default function SummaryCard({ title, value, sub, color = "blue", loading
   const vc = valueStyle[color];
 
   return (
-    <div className="card p-5 flex items-start gap-4">
+    <div className="card p-4 sm:p-5 flex items-start gap-3 sm:gap-4">
       {Icon && (
         <div style={{
           backgroundColor: dark ? ic.darkBg : ic.bg,
@@ -39,7 +39,7 @@ export default function SummaryCard({ title, value, sub, color = "blue", loading
         {loading ? (
           <div style={{ height: "1.75rem", width: "7rem", backgroundColor: "var(--bg-muted)", borderRadius: "0.5rem" }} className="animate-pulse" />
         ) : (
-          <p style={{ color: dark ? vc.dark : vc.light, fontSize: "1.25rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <p style={{ color: dark ? vc.dark : vc.light, fontSize: "clamp(1rem, 4.5vw, 1.25rem)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {value}
           </p>
         )}

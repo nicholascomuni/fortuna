@@ -79,7 +79,8 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
                     interest = round(accumulated * r, 2)
                     if interest > 0:
                         interest_occ = _make_occurrence(tx, current, interest)
-                        interest_occ["description"] = f"Rendimento — {tx.description}"
+                        label = "Rendimento" if tx.kind == "receita" else "Reajuste"
+                        interest_occ["description"] = f"{label} — {tx.description}"
                         interest_occ["is_interest_child"] = True
                         occurrences.append(interest_occ)
             else:
@@ -159,7 +160,57 @@ def build_projection(transactions, initial_balance: float, range_start: date, ra
     }
 
 
-def merge_credit_purchases(rows: list[dict], purchases, initial_balance: float) -> list[dict]:
+def _purchase_occurrence(p, occurrence_date: date) -> dict:
+    return {
+        "purchase_id": p.id,
+        "card_id": p.card_id,
+        "description": p.description,
+        "amount": float(p.total_amount),
+        "total_amount": float(p.total_amount),
+        "kind": "despesa",
+        "type": p.type,
+        "date": occurrence_date.strftime("%Y-%m-%d"),
+        "purchase_date": occurrence_date.strftime("%Y-%m-%d"),
+        "category": p.category,
+        "installments": p.installments,
+        "source": "credit_purchase",
+        "is_interest_child": False,
+        "frequency": p.frequency,
+        "recurrence_end_type": p.recurrence_end_type,
+        "recurrence_end_date": p.recurrence_end_date.strftime("%Y-%m-%d") if p.recurrence_end_date else None,
+        "recurrence_count": p.recurrence_count,
+    }
+
+
+def _expand_recurring_purchase(p, range_start: date, range_end: date) -> list[dict]:
+    """Walk a recurring CreditPurchase's occurrences, same pattern as expand_transaction."""
+    occurrences = []
+    current = p.purchase_date
+    emitted = 0
+    while current <= range_end:
+        if (
+            p.recurrence_end_type == "por_ocorrencias"
+            and p.recurrence_count is not None
+            and emitted >= p.recurrence_count
+        ):
+            break
+        if (
+            p.recurrence_end_type == "por_data"
+            and p.recurrence_end_date is not None
+            and current > p.recurrence_end_date
+        ):
+            break
+
+        if current >= range_start:
+            occurrences.append(_purchase_occurrence(p, current))
+
+        emitted += 1
+        current = _next_date(current, p.frequency)
+
+    return occurrences
+
+
+def merge_credit_purchases(rows: list[dict], purchases, initial_balance: float, range_start: date, range_end: date) -> list[dict]:
     """
     Merge CreditPurchase rows into *rows* as informational-only entries.
 
@@ -169,26 +220,17 @@ def merge_credit_purchases(rows: list[dict], purchases, initial_balance: float) 
     balance was already in effect at that point, and callers must compute
     summary/chart totals from *rows* BEFORE calling this — merging in here
     would double count against the invoice.
+
+    Recurring purchases (type="recorrente") are expanded into one row per
+    occurrence within [range_start, range_end], same as a recurring
+    Transaction; pontual/parcelado purchases show a single row.
     """
-    purchase_rows = [
-        {
-            "purchase_id": p.id,
-            "card_id": p.card_id,
-            "description": p.description,
-            "amount": float(p.total_amount),
-            "total_amount": float(p.total_amount),
-            "kind": "despesa",
-            "type": "pontual",
-            "date": p.purchase_date.strftime("%Y-%m-%d"),
-            "purchase_date": p.purchase_date.strftime("%Y-%m-%d"),
-            "category": p.category,
-            "installments": p.installments,
-            "source": "credit_purchase",
-            "is_interest_child": False,
-            "frequency": None,
-        }
-        for p in purchases
-    ]
+    purchase_rows = []
+    for p in purchases:
+        if p.type == "recorrente":
+            purchase_rows.extend(_expand_recurring_purchase(p, range_start, range_end))
+        elif range_start <= p.purchase_date <= range_end:
+            purchase_rows.append(_purchase_occurrence(p, p.purchase_date))
 
     merged = sorted(
         rows + purchase_rows,

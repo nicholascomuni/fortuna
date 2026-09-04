@@ -1,4 +1,5 @@
 import { IconBank } from "./Icons";
+import { formatDate } from "../utils/format";
 
 const DEFAULT_GRADIENT = "linear-gradient(135deg, #4f46e5 0%, #2563eb 55%, #0ea5e9 100%)";
 
@@ -6,7 +7,7 @@ function formatBRL(v) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 }
 
-export default function CreditCardVisual({ card, invoice, openBalance, limitUsedPct, onClick }) {
+export default function CreditCardVisual({ card, invoice, invoiceDate, openBalance, limitUsedPct, onClick }) {
   const background = card.color
     ? `linear-gradient(135deg, ${card.color} 0%, ${card.color}cc 100%)`
     : DEFAULT_GRADIENT;
@@ -56,11 +57,11 @@ export default function CreditCardVisual({ card, invoice, openBalance, limitUsed
 
       <div>
         <p style={{ fontSize: "0.7rem", opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          Vence dia {card.due_day}
+          {invoiceDate ? `Vence em ${formatDate(invoiceDate)}` : `Vence dia ${card.due_day}`}
         </p>
         <p style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "0.15rem" }}>
           {formatBRL(invoice)}
-          <span style={{ fontSize: "0.7rem", fontWeight: 400, opacity: 0.8 }}> / mês atual</span>
+          <span style={{ fontSize: "0.7rem", fontWeight: 400, opacity: 0.8 }}> {invoiceDate ? "/ próxima fatura" : "/ sem faturas"}</span>
         </p>
 
         {card.credit_limit != null && (

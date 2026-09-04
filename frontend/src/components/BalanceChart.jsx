@@ -37,19 +37,20 @@ function isDark() {
   return document.documentElement.getAttribute("data-theme") === "dark";
 }
 
-export default function BalanceChart({ data, loading }) {
+export default function BalanceChart({ data, loading, fill = false }) {
   const dark = isDark();
 
   const gridColor  = dark ? "#1f2937" : "#f3f4f6";
   const axisColor  = dark ? "#6b7280" : "#9ca3af";
   const strokePos  = dark ? "#60a5fa" : "#3b82f6";
+  const boxHeight  = fill ? "100%" : "16rem";
 
   if (loading) return (
-    <div style={{ height: "16rem", backgroundColor: "var(--bg-muted)", borderRadius: "0.75rem" }} className="animate-pulse" />
+    <div style={{ height: boxHeight, backgroundColor: "var(--bg-muted)", borderRadius: "0.75rem" }} className="animate-pulse" />
   );
 
   if (!data?.length) return (
-    <div style={{ height: "16rem", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.875rem" }}>
+    <div style={{ height: boxHeight, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.875rem" }}>
       Nenhum dado para exibir.
     </div>
   );
@@ -58,7 +59,7 @@ export default function BalanceChart({ data, loading }) {
   const hasNeg   = sampled.some(d => d.balance < 0);
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height={fill ? "100%" : 280}>
       <ComposedChart data={sampled} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
         <defs>
           <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">

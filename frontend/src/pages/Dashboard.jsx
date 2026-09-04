@@ -5,22 +5,16 @@ import SummaryCard from "../components/SummaryCard";
 import BalanceChart from "../components/BalanceChart";
 import TransactionTable from "../components/TransactionTable";
 import TransactionForm from "../components/TransactionForm";
-import CreditPurchaseForm from "../components/CreditPurchaseForm";
 import { useConfirm } from "../components/ConfirmDialog";
 import {
   IconTrendingUp, IconTrendingDown, IconWallet,
-  IconAlertTriangle, IconPlus, IconFilter, IconX,
+  IconAlertTriangle, IconFilter, IconX, IconMaximize,
 } from "../components/Icons";
-
-const ENTRY_MODES = [
-  { v: "comum",   label: "Despesa/Receita comum" },
-  { v: "credito", label: "Compra no cartão" },
-];
 
 function Modal({ title, onClose, children }) {
   return (
     <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 40, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(8px)" }}>
-      <div className="card w-full max-w-lg p-6" style={{ boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)" }}>
+      <div className="card w-full max-w-lg p-6" style={{ boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between mb-5">
           <h2 style={{ color: "var(--text-base)", fontSize: "0.9375rem", fontWeight: 600 }}>{title}</h2>
           <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg"><IconX className="w-4 h-4" /></button>
@@ -42,7 +36,6 @@ function Toast({ toast }) {
 
 export default function Dashboard() {
   const [projection, setProjection] = useState(null);
-  const [settings, setSettings]     = useState(null);
   const [loading, setLoading]        = useState(true);
   const [categories, setCategories]  = useState([]);
 
@@ -52,16 +45,12 @@ export default function Dashboard() {
   const [filterCat, setFilterCat]   = useState("");
 
   const { confirm, confirmEl }            = useConfirm();
-  const [adding, setAdding]               = useState(false);
-  const [entryMode, setEntryMode]         = useState("comum");
-  const [addLoading, setAddLoading]       = useState(false);
   const [editing, setEditing]             = useState(null);
   const [saveLoading, setSaveLoading]     = useState(false);
   const [toast, setToast]                 = useState(null);
-  const [balanceModal, setBalanceModal]   = useState(false);
-  const [balanceInput, setBalanceInput]   = useState("");
-  const [savingBalance, setSavingBalance] = useState(false);
   const [cards, setCards]                 = useState([]);
+  const [accounts, setAccounts]           = useState([]);
+  const [chartExpanded, setChartExpanded] = useState(false);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -71,17 +60,16 @@ export default function Dashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [proj, sett, cats, cardsData] = await Promise.all([
+      const [proj, cats, cardsData, accountsData] = await Promise.all([
         api.getProjection({ start: startDate, end: endDate }),
-        api.getSettings(),
         api.getCategories(),
         api.getCards(),
+        api.getAccounts(),
       ]);
       setProjection(proj);
-      setSettings(sett);
       setCategories(cats);
       setCards(cardsData);
-      setBalanceInput(sett.initial_balance?.toString() ?? "0");
+      setAccounts(accountsData);
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -91,28 +79,20 @@ export default function Dashboard() {
 
   useEffect(() => { load(); }, [load]);
 
+  // The floating "Nova movimentação" button is global (rendered in Layout,
+  // reachable from every page) — it fires this event on success so we know
+  // to refresh, without it needing to know about this page's state.
+  useEffect(() => {
+    function handleChanged() { load(); }
+    window.addEventListener("finance:changed", handleChanged);
+    return () => window.removeEventListener("finance:changed", handleChanged);
+  }, [load]);
+
   const filteredRows = (projection?.rows ?? []).filter(r => {
     if (filterKind && r.kind !== filterKind) return false;
     if (filterCat  && r.category !== filterCat) return false;
     return true;
   });
-
-  function openBalanceModal() {
-    setBalanceInput(settings?.initial_balance?.toString() ?? "0");
-    setBalanceModal(true);
-  }
-
-  async function handleSaveBalance(e) {
-    e.preventDefault();
-    setSavingBalance(true);
-    try {
-      await api.updateSettings({ initial_balance: parseFloat(balanceInput), initial_balance_date: today() });
-      showToast("Saldo inicial atualizado!");
-      setBalanceModal(false);
-      load();
-    } catch (err) { showToast(err.message, "error"); }
-    finally { setSavingBalance(false); }
-  }
 
   async function handleOpenEdit(row) {
     if (row.source === "credit_invoice") {
@@ -120,7 +100,7 @@ export default function Dashboard() {
       return;
     }
     if (row.source === "credit_purchase") {
-      setEditing({ ...row, id: row.purchase_id });
+      setEditing({ ...row, id: row.purchase_id, payment_method: "cartao_credito" });
       return;
     }
     let txId = row.id ?? row.transaction_id;
@@ -134,26 +114,6 @@ export default function Dashboard() {
       }
       setEditing(tx);
     } catch { setEditing(row); }
-  }
-
-  async function handleAddSave(payload) {
-    setAddLoading(true);
-    try {
-      await api.createTransaction(payload);
-      showToast("Movimentação adicionada!");
-      setAdding(false); load();
-    } catch (err) { showToast(err.message, "error"); }
-    finally { setAddLoading(false); }
-  }
-
-  async function handleAddPurchaseSave(payload) {
-    setAddLoading(true);
-    try {
-      await api.createCreditPurchase(payload);
-      showToast("Compra no cartão adicionada!");
-      setAdding(false); load();
-    } catch (err) { showToast(err.message, "error"); throw err; }
-    finally { setAddLoading(false); }
   }
 
   async function handleEditSave(payload) {
@@ -213,137 +173,11 @@ export default function Dashboard() {
       <Toast toast={toast} />
       {confirmEl}
 
-      {adding && (
-        <Modal title="Nova movimentação" onClose={() => setAdding(false)}>
-          <div className="space-y-5">
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              {ENTRY_MODES.map(({ v, label }) => {
-                const isActive = entryMode === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setEntryMode(v)}
-                    style={{
-                      flex: 1,
-                      padding: "0.5rem 0.75rem",
-                      borderRadius: "0.75rem",
-                      fontSize: "0.8125rem",
-                      fontWeight: isActive ? 600 : 400,
-                      cursor: "pointer",
-                      transition: "all 0.15s",
-                      border: `1px solid ${isActive ? "rgba(37,99,235,0.4)" : "var(--border-input)"}`,
-                      backgroundColor: isActive ? "rgba(37,99,235,0.1)" : "transparent",
-                      color: isActive ? "#2563eb" : "var(--text-secondary)",
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {entryMode === "comum" ? (
-              <TransactionForm onSubmit={handleAddSave}
-                onCancel={() => setAdding(false)} loading={addLoading} categories={categories} />
-            ) : cards.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-                  Você ainda não tem cartões cadastrados. Cadastre um na aba{" "}
-                  <a href="/cartoes" style={{ color: "#2563eb", fontWeight: 600 }}>Cartões</a> primeiro.
-                </p>
-              </div>
-            ) : (
-              <CreditPurchaseForm cards={cards} onSubmit={handleAddPurchaseSave}
-                onCancel={() => setAdding(false)} loading={addLoading} categories={categories} />
-            )}
-          </div>
-        </Modal>
-      )}
-
       {editing && (
         <Modal title={editing.source === "credit_purchase" ? "Editar compra no cartão" : "Editar movimentação"} onClose={() => setEditing(null)}>
-          {editing.source === "credit_purchase" ? (
-            <CreditPurchaseForm initial={editing} cards={cards} onSubmit={handleEditSave}
-              onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
-          ) : (
-            <TransactionForm initial={editing} onSubmit={handleEditSave}
-              onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
-          )}
+          <TransactionForm initial={editing} cards={cards} accounts={accounts} onSubmit={handleEditSave}
+            onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
         </Modal>
-      )}
-
-      {/* Balance modal */}
-      {balanceModal && (
-        <div
-          onClick={() => setBalanceModal(false)}
-          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 40, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(8px)" }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            className="card"
-            style={{ width: "100%", maxWidth: "22rem", padding: "1.5rem", boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)", display: "flex", flexDirection: "column", gap: "1.25rem" }}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p style={{ color: "var(--text-base)", fontWeight: 600, fontSize: "0.9375rem" }}>Saldo inicial</p>
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.8125rem", marginTop: "0.125rem" }}>
-                  Valor de referência para o cálculo do saldo projetado
-                </p>
-              </div>
-              <button
-                onClick={() => setBalanceModal(false)}
-                className="btn-ghost p-1.5 rounded-lg"
-                style={{ flexShrink: 0 }}
-              >
-                <IconX className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Current balance display */}
-            {settings?.initial_balance != null && (
-              <div style={{ padding: "0.875rem 1rem", borderRadius: "0.875rem", backgroundColor: "var(--bg-muted)", border: "1px solid var(--border)" }}>
-                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>Saldo atual</p>
-                <p style={{ fontSize: "1.25rem", fontWeight: 700, color: settings.initial_balance >= 0 ? "#10b981" : "#f43f5e" }}>
-                  {formatBRL(settings.initial_balance)}
-                </p>
-              </div>
-            )}
-
-            {/* Form */}
-            <form onSubmit={handleSaveBalance} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <div>
-                <label className="label">Novo saldo</label>
-                <div style={{ position: "relative" }}>
-                  <span style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.8125rem", color: "var(--text-muted)", pointerEvents: "none" }}>R$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={balanceInput}
-                    onChange={e => setBalanceInput(e.target.value)}
-                    className="input"
-                    style={{ paddingLeft: "2.25rem" }}
-                    autoFocus
-                  />
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: "0.625rem", justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={() => setBalanceModal(false)}
-                  className="btn-ghost px-4 py-2 text-sm"
-                  style={{ border: "1px solid var(--border)" }}
-                >
-                  Cancelar
-                </button>
-                <button type="submit" disabled={savingBalance} className="btn-primary py-2 px-5 text-sm">
-                  {savingBalance ? "…" : "Salvar"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
 
       {/* Header */}
@@ -355,7 +189,7 @@ export default function Dashboard() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard title="Receitas" value={formatBRL(s?.total_receitas)} color="green" icon={IconTrendingUp} loading={loading} />
         <SummaryCard title="Despesas" value={formatBRL(s?.total_despesas)} color="red" icon={IconTrendingDown} loading={loading} />
         <SummaryCard title="Saldo projetado" value={formatBRL(s?.final_balance)} sub="ao final do período" color={s?.final_balance >= 0 ? "blue" : "red"} icon={IconWallet} loading={loading} />
@@ -368,9 +202,41 @@ export default function Dashboard() {
           <h2 style={{ color: "var(--text-secondary)", fontSize: "0.875rem", fontWeight: 600 }}>
             Saldo ao longo do tempo
           </h2>
+          <button
+            onClick={() => setChartExpanded(true)}
+            className="btn-ghost p-1.5 rounded-lg"
+            style={{ color: "var(--text-muted)" }}
+            title="Expandir gráfico"
+          >
+            <IconMaximize className="w-4 h-4" />
+          </button>
         </div>
         <BalanceChart data={projection?.chart} loading={loading} />
       </div>
+
+      {/* Expanded chart — fullscreen, works in mobile landscape too */}
+      {chartExpanded && (
+        <div
+          onClick={() => setChartExpanded(false)}
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.55)", zIndex: 60, backdropFilter: "blur(8px)", display: "flex", flexDirection: "column", padding: "1rem" }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="card"
+            style={{ flex: 1, padding: "1rem", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px -12px rgb(0 0 0 / .5)" }}
+          >
+            <div className="flex items-center justify-between mb-2" style={{ flexShrink: 0 }}>
+              <h2 style={{ color: "var(--text-base)", fontSize: "0.9375rem", fontWeight: 600 }}>
+                Saldo ao longo do tempo
+              </h2>
+              <button onClick={() => setChartExpanded(false)} className="btn-ghost p-1.5 rounded-lg"><IconX className="w-4 h-4" /></button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <BalanceChart data={projection?.chart} loading={loading} fill />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filters + Table */}
       <div className="card p-5">
@@ -408,23 +274,8 @@ export default function Dashboard() {
                 <IconX className="w-3 h-3" /> Limpar
               </button>
             )}
-            <button
-              onClick={openBalanceModal}
-              className="btn-ghost text-xs flex items-center gap-1.5"
-              style={{ border: "1px solid var(--border)" }}
-              title="Definir saldo inicial"
-            >
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v6l4 2"/>
-              </svg>
-              Saldo
-            </button>
             <button onClick={load} className="btn-ghost text-xs" style={{ border: "1px solid var(--border)" }}>
               Atualizar
-            </button>
-            <button onClick={() => { setEntryMode("comum"); setAdding(true); }} className="btn-primary text-xs flex items-center gap-1.5">
-              <IconPlus className="w-3.5 h-3.5" /> Nova
             </button>
           </div>
         </div>

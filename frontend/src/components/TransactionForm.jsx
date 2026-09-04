@@ -8,6 +8,7 @@ const empty = {
   recurrence_end_type: "por_ocorrencias", recurrence_end_date: "", recurrence_count: "12",
   payment_method: "a_vista",
   interest_rate: "", interest_period: "mensal", interest_count: "12",
+  card_id: "", installments: "1", account_id: "",
 };
 
 // ── Segmented toggle button ───────────────────────────────────────────────────
@@ -23,7 +24,7 @@ const ACTIVE_COLORS = {
 function SegmentedGroup({ options, value, onChange, activeColor = "blue" }) {
   const ac = ACTIVE_COLORS[activeColor];
   return (
-    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.25rem" }}>
       {options.map(({ v, label, icon }) => {
         const isActive = value === v;
         return (
@@ -32,7 +33,7 @@ function SegmentedGroup({ options, value, onChange, activeColor = "blue" }) {
             type="button"
             onClick={() => onChange(v)}
             style={{
-              flex: 1,
+              flex: "1 1 6rem",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -72,8 +73,9 @@ const KIND_OPTIONS = [
 ];
 
 const PAYMENT_OPTIONS = [
-  { v: "a_vista", label: "À vista",  icon: IcoBanknote },
-  { v: "debito",  label: "Débito",   icon: IcoCard     },
+  { v: "a_vista",         label: "À vista",           icon: IcoBanknote },
+  { v: "debito",          label: "Débito",            icon: IcoCard     },
+  { v: "cartao_credito",  label: "Cartão de crédito", icon: IcoCard     },
 ];
 
 const MODALITY_OPTIONS = [
@@ -94,23 +96,43 @@ function _fromInitial(initial) {
     interest_rate:   String(initial.interest_rate   ?? ""),
     interest_period: initial.interest_period        ?? "mensal",
     interest_count:  String(initial.interest_count  ?? "12"),
+    card_id:         initial.card_id != null ? String(initial.card_id) : "",
+    installments:    String(initial.installments ?? "1"),
+    account_id:      initial.account_id != null ? String(initial.account_id) : "",
   };
 }
 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
-export default function TransactionForm({ initial, onSubmit, onCancel, loading, categories = [] }) {
+function _withCardDefault(f, cards) {
+  if (!f.card_id && cards.length > 0) return { ...f, card_id: String(cards[0].id) };
+  return f;
+}
+
+// Every transaction requires an account — default to the user's only
+// account when there's just one, so most people never have to think about
+// this field at all; with several accounts, leave it blank and make them pick.
+function _withAccountDefault(f, accounts) {
+  if (!f.account_id && accounts.length === 1) return { ...f, account_id: String(accounts[0].id) };
+  return f;
+}
+
+export default function TransactionForm({ initial, onSubmit, onCancel, loading, categories = [], cards = [], accounts = [], requireAccount = true }) {
   const [form, setForm] = useState(
-    initial ? _fromInitial(initial) : empty
+    _withAccountDefault(_withCardDefault(initial ? _fromInitial(initial) : empty, cards), accounts)
   );
   const [errors, setErrors] = useState([]);
   const [showInterest, setShowInterest] = useState(!!(initial?.interest_rate && !initial?.is_interest_child));
 
   useEffect(() => {
     if (initial) {
-      setForm(_fromInitial(initial));
+      setForm(_withAccountDefault(_withCardDefault(_fromInitial(initial), cards), accounts));
     }
   }, [initial]);
+
+  useEffect(() => {
+    setForm(f => _withAccountDefault(f, accounts));
+  }, [accounts]);
 
   function set(field, value) { setForm(f => ({ ...f, [field]: value })); }
 
@@ -119,9 +141,37 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
     setShowInterest(false);
   }
 
+  const isCard = form.kind === "despesa" && form.payment_method === "cartao_credito";
+
   async function handleSubmit(e) {
     e.preventDefault();
     setErrors([]);
+
+    if (isCard) {
+      // Shaped for /credit-purchases, not /transactions — payment_method
+      // stays on the payload so the caller knows which endpoint to hit.
+      const payload = {
+        description: form.description,
+        total_amount: form.amount,
+        category: form.category || null,
+        purchase_date: form.date,
+        card_id: parseInt(form.card_id),
+        type: form.type,
+        payment_method: "cartao_credito",
+      };
+      if (form.type === "recorrente") {
+        payload.frequency = form.frequency;
+        payload.recurrence_end_type = form.recurrence_end_type;
+        if (form.recurrence_end_type === "por_data") payload.recurrence_end_date = form.recurrence_end_date;
+        else payload.recurrence_count = form.recurrence_count;
+      } else {
+        payload.installments = parseInt(form.installments) || 1;
+      }
+      try { await onSubmit(payload); }
+      catch (err) { setErrors([err.message]); }
+      return;
+    }
+
     const payload = {
       description: form.description,
       amount: form.amount,
@@ -130,9 +180,10 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
       date: form.date,
       category: form.category || null,
       payment_method: form.kind === "despesa" ? form.payment_method : "a_vista",
-      interest_rate:   (form.kind === "receita" && showInterest && form.interest_rate) ? parseFloat(form.interest_rate) : null,
-      interest_period: (form.kind === "receita" && showInterest && form.interest_rate) ? form.interest_period : null,
-      interest_count:  (form.kind === "receita" && showInterest && form.interest_rate) ? parseInt(form.interest_count) || null : null,
+      account_id: form.account_id || null,
+      interest_rate:   (showInterest && form.interest_rate) ? parseFloat(form.interest_rate) : null,
+      interest_period: (showInterest && form.interest_rate) ? form.interest_period : null,
+      interest_count:  (showInterest && form.interest_rate) ? parseInt(form.interest_count) || null : null,
     };
     if (payload.type === "recorrente") {
       payload.frequency = form.frequency;
@@ -162,12 +213,12 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
           placeholder="Ex.: Aluguel, Salário, Netflix…" required className="input" />
       </div>
 
-      {/* Amount + Kind */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Amount + Kind — no cartão de crédito é sempre despesa, sem toggle */}
+      <div className={isCard ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 min-[420px]:grid-cols-2 gap-4"}>
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
             <label className="label" style={{ margin: 0 }}>Valor (R$) *</label>
-            {form.kind === "receita" && (
+            {!isCard && (
               <button
                 type="button"
                 onClick={() => { setShowInterest(v => !v); if (showInterest) set("interest_rate", ""); }}
@@ -188,7 +239,7 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
             onChange={e => set("amount", e.target.value)}
             placeholder="0,00" required className="input" />
           {/* Interest panel */}
-          {form.kind === "receita" && showInterest && (
+          {!isCard && showInterest && (
             <div style={{ marginTop: "0.625rem", padding: "0.75rem", borderRadius: "0.75rem", border: "1px solid rgba(16,185,129,0.2)", backgroundColor: "rgba(16,185,129,0.04)" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.625rem" }}>
                 <div>
@@ -227,7 +278,7 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
               </div>
               {parseFloat(form.interest_rate) > 0 && parseInt(form.interest_count) > 0 && (
                 <p style={{ fontSize: "0.72rem", color: "#10b981", marginTop: "0.5rem" }}>
-                  {parseInt(form.interest_count)} rendimentos · taxa {form.interest_period === "mensal"
+                  {parseInt(form.interest_count)} {form.kind === "receita" ? "rendimentos" : "reajustes"} · taxa {form.interest_period === "mensal"
                     ? `≈ ${(((1 + parseFloat(form.interest_rate)/100)**12 - 1)*100).toFixed(1)}% a.a.`
                     : `${parseFloat(form.interest_rate).toFixed(2)}% a.a.`
                   }
@@ -236,19 +287,21 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
             </div>
           )}
         </div>
-        <div>
-          <label className="label">Tipo *</label>
-          <SegmentedGroup
-            options={KIND_OPTIONS}
-            value={form.kind}
-            onChange={setKind}
-            activeColor={form.kind === "receita" ? "green" : "red"}
-          />
-        </div>
+        {!isCard && (
+          <div>
+            <label className="label">Tipo *</label>
+            <SegmentedGroup
+              options={KIND_OPTIONS}
+              value={form.kind}
+              onChange={setKind}
+              activeColor={form.kind === "receita" ? "green" : "red"}
+            />
+          </div>
+        )}
       </div>
 
       {/* Date + Category */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-4">
         <div>
           <label className="label">Data *</label>
           <input type="date" value={form.date}
@@ -259,6 +312,19 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
           <CategoryInput value={form.category} onChange={v => set("category", v)} extraCategories={categories} />
         </div>
       </div>
+
+      {/* Account — de onde sai / pra onde vai o dinheiro (não se aplica a cartão, que já usa a conta de pagamento do cartão, nem a cenários do simulador, que são hipotéticos) */}
+      {!isCard && requireAccount && (
+        <div>
+          <label className="label">Conta *</label>
+          <select value={form.account_id} onChange={e => set("account_id", e.target.value)} required className="input">
+            <option value="" disabled>Selecione uma conta…</option>
+            {accounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name}{a.bank ? ` — ${a.bank}` : ""}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Payment method — apenas para despesas */}
       {form.kind === "despesa" && (
@@ -271,6 +337,33 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
             activeColor="indigo"
           />
         </div>
+      )}
+
+      {/* Card + installments — só quando forma de pagamento é cartão */}
+      {isCard && (
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Cartão *</label>
+            <select value={form.card_id} onChange={e => set("card_id", e.target.value)} required className="input">
+              {cards.length === 0 && <option value="">Nenhum cartão cadastrado</option>}
+              {cards.map(c => (
+                <option key={c.id} value={c.id}>{c.name}{c.bank ? ` — ${c.bank}` : ""}</option>
+              ))}
+            </select>
+          </div>
+          {form.type === "pontual" && (
+            <div>
+              <label className="label">Parcelas *</label>
+              <input type="number" min="1" max="72" step="1" value={form.installments}
+                onChange={e => set("installments", e.target.value)} className="input" />
+            </div>
+          )}
+        </div>
+      )}
+      {isCard && form.type === "pontual" && parseInt(form.installments) > 1 && parseFloat(form.amount) > 0 && (
+        <p style={{ fontSize: "0.8125rem", color: "var(--text-secondary)", marginTop: "-0.75rem" }}>
+          {parseInt(form.installments)}× de <strong>R$ {(parseFloat(form.amount) / parseInt(form.installments)).toFixed(2)}</strong> — uma cobrança em cada fatura mensal
+        </p>
       )}
 
       {/* Pontual / Recorrente */}

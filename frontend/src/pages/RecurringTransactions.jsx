@@ -10,7 +10,7 @@ const freqLabel = { semanal: "Semanal", mensal: "Mensal", anual: "Anual" };
 function Modal({ title, onClose, children }) {
   return (
     <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 40, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(4px)" }}>
-      <div className="card w-full max-w-lg p-6" style={{ boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)" }}>
+      <div className="card w-full max-w-lg p-6" style={{ boxShadow: "0 25px 50px -12px rgb(0 0 0 / .4)", maxHeight: "90vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between mb-5">
           <h2 style={{ color: "var(--text-base)", fontSize: "0.9375rem", fontWeight: 600 }}>{title}</h2>
           <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg"><IconX className="w-4 h-4" /></button>
@@ -28,6 +28,7 @@ export default function RecurringTransactions() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [toast, setToast]             = useState(null);
   const [categories, setCategories]   = useState([]);
+  const [accounts, setAccounts]       = useState([]);
   const { confirm, confirmEl }        = useConfirm();
 
   const showToast = (msg, type = "success") => {
@@ -38,8 +39,8 @@ export default function RecurringTransactions() {
   const load = async () => {
     setLoading(true);
     try {
-      const [data, cats] = await Promise.all([api.getRecurring(), api.getCategories()]);
-      setRows(data); setCategories(cats);
+      const [data, cats, accs] = await Promise.all([api.getRecurring(), api.getCategories(), api.getAccounts()]);
+      setRows(data); setCategories(cats); setAccounts(accs);
     } catch (e) { showToast(e.message, "error"); }
     finally { setLoading(false); }
   };
@@ -86,7 +87,7 @@ export default function RecurringTransactions() {
 
       {editing && (
         <Modal title="Editar recorrência" onClose={() => setEditing(null)}>
-          <TransactionForm initial={editing} onSubmit={handleEditSave}
+          <TransactionForm initial={editing} onSubmit={handleEditSave} accounts={accounts}
             onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
         </Modal>
       )}

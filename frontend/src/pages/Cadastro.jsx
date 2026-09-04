@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
-import { IconDollarSign, IconSun, IconMoon } from "../components/Icons";
+import { IconFortuna, IconSun, IconMoon } from "../components/Icons";
 
 export default function Cadastro() {
   const { register } = useAuth();
@@ -35,9 +35,7 @@ export default function Cadastro() {
 
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <IconDollarSign className="w-7 h-7 text-white stroke-white" />
-          </div>
+          <IconFortuna className="w-14 h-14 mx-auto mb-4 block" />
           <h1 style={{ color: "var(--text-base)" }} className="text-2xl font-bold">Criar conta</h1>
           <p style={{ color: "var(--text-secondary)" }} className="text-sm mt-1">Comece a controlar suas finanças</p>
         </div>

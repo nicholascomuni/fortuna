@@ -4,11 +4,27 @@ import sys
 # Garante que o diretório do app.py esteja no path, independente de onde for executado
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask
+# Use the OS certificate store (via truststore) instead of certifi's bundled
+# CAs for all outbound HTTPS (e.g. the OpenAI API). Needed on networks with a
+# TLS-inspecting corporate proxy whose root CA isn't in certifi's bundle but
+# is trusted by the OS — harmless elsewhere, since it just adds the OS store
+# as a trust source.
+import truststore
+truststore.inject_into_ssl()
+
+from dotenv import load_dotenv
+# Local dev convenience — reads backend/.env if present (e.g. OPENAI_API_KEY).
+# Never overrides a real environment variable already set (production sets
+# these directly, no .env file is deployed there).
+load_dotenv()
+
+from flask import Flask, jsonify
+from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from extensions import db, jwt
 from routes import bp as api_bp
 from auth import auth_bp
+from ai_agent import ai_bp
 
 
 def _add_column_if_missing(conn, table: str, column: str, ddl: str):
@@ -50,6 +66,28 @@ def _migrate(database):
         _add_column_if_missing(conn, "transactions", "is_interest_child", "BOOLEAN NOT NULL DEFAULT false")
         _add_column_if_missing(conn, "transactions", "source", "VARCHAR(20)")
         _add_column_if_missing(conn, "transactions", "source_card_id", "INTEGER REFERENCES credit_cards(id)")
+        _add_column_if_missing(conn, "credit_purchases", "type", "VARCHAR(12) NOT NULL DEFAULT 'pontual'")
+        _add_column_if_missing(conn, "credit_purchases", "frequency", "VARCHAR(10)")
+        _add_column_if_missing(conn, "credit_purchases", "recurrence_end_type", "VARCHAR(20)")
+        _add_column_if_missing(conn, "credit_purchases", "recurrence_end_date", "DATE")
+        _add_column_if_missing(conn, "credit_purchases", "recurrence_count", "INTEGER")
+        _add_column_if_missing(conn, "users", "active_plan_id", "INTEGER REFERENCES plans(id)")
+        _add_column_if_missing(conn, "transactions", "plan_id", "INTEGER REFERENCES plans(id)")
+        _add_column_if_missing(conn, "transactions", "account_id", "INTEGER REFERENCES accounts(id)")
+        _add_column_if_missing(conn, "credit_cards", "plan_id", "INTEGER REFERENCES plans(id)")
+        _add_column_if_missing(conn, "credit_cards", "account_id", "INTEGER REFERENCES accounts(id)")
+        _add_column_if_missing(conn, "credit_purchases", "plan_id", "INTEGER REFERENCES plans(id)")
+        _add_column_if_missing(conn, "card_charges", "plan_id", "INTEGER REFERENCES plans(id)")
+        # DEFAULT true here (unlike the model's Python-side default=False) is
+        # intentional: it only backfills EXISTING rows on this ALTER TABLE,
+        # grandfathering already-registered users as verified. New signups
+        # always pass email_verified=False explicitly in auth.py::register().
+        _add_column_if_missing(conn, "users", "email_verified", "BOOLEAN NOT NULL DEFAULT true")
+        _add_column_if_missing(conn, "users", "email_verify_token", "VARCHAR(64)")
+        _add_column_if_missing(conn, "users", "email_verify_sent_at", "TIMESTAMP")
+        _add_column_if_missing(conn, "users", "totp_secret", "VARCHAR(32)")
+        _add_column_if_missing(conn, "users", "totp_enabled", "BOOLEAN NOT NULL DEFAULT false")
+        _add_column_if_missing(conn, "ai_messages", "conversation_id", "INTEGER REFERENCES ai_conversations(id)")
 
 
 def _migrate_legacy_credit_transactions(database):
@@ -153,6 +191,153 @@ def _migrate_legacy_credit_transactions(database):
     database.session.commit()
 
 
+def _migrate_users_to_plans(database):
+    """
+    One-time, per-user migration: give every user without an active_plan_id
+    a default Plan ("Plano principal") and Account ("Conta principal",
+    balance = their old Settings.initial_balance), then backfill plan_id
+    (and account_id, for Transactions) onto everything they already have —
+    including anything _migrate_legacy_credit_transactions just created, so
+    this must run after it.
+
+    Each user is migrated in its own transaction: create the Plan/Account
+    speculatively, then atomically claim active_plan_id — if another
+    Gunicorn worker claimed it first, roll back (discarding the speculative
+    rows) and move on. Same spirit as the atomic claim in
+    _migrate_legacy_credit_transactions, adapted because here the "claim
+    value" (the new plan's id) doesn't exist until after we create it.
+    """
+    from models import User, Settings, Transaction, CreditCard, CreditPurchase, CardCharge, Plan, Account
+
+    candidate_ids = [
+        uid for (uid,) in db.session.query(User.id).filter(User.active_plan_id.is_(None)).all()
+    ]
+
+    for uid in candidate_ids:
+        settings = Settings.query.filter_by(user_id=uid).first()
+        initial_balance = settings.initial_balance if settings else 0
+
+        plan = Plan(user_id=uid, name="Plano principal")
+        database.session.add(plan)
+        database.session.flush()  # need plan.id
+
+        account = Account(plan_id=plan.id, name="Conta principal", initial_balance=initial_balance)
+        database.session.add(account)
+        database.session.flush()  # need account.id
+
+        result = database.session.execute(
+            User.__table__.update()
+            .where(User.id == uid, User.active_plan_id.is_(None))
+            .values(active_plan_id=plan.id)
+        )
+        if result.rowcount == 0:
+            # Another worker already migrated this user — discard our speculative plan/account.
+            database.session.rollback()
+            continue
+
+        database.session.execute(
+            Transaction.__table__.update()
+            .where(Transaction.user_id == uid)
+            .values(plan_id=plan.id, account_id=account.id)
+        )
+        database.session.execute(
+            CreditCard.__table__.update().where(CreditCard.user_id == uid).values(plan_id=plan.id)
+        )
+        database.session.execute(
+            CreditPurchase.__table__.update().where(CreditPurchase.user_id == uid).values(plan_id=plan.id)
+        )
+        database.session.execute(
+            CardCharge.__table__.update().where(CardCharge.user_id == uid).values(plan_id=plan.id)
+        )
+        database.session.commit()
+
+
+def _migrate_ensure_default_accounts(database):
+    """
+    Transactions now require an account (see routes.py::_validate_transaction),
+    so every plan needs at least one to remain usable. Covers two gaps left
+    by older code: (1) a plan created before this rule existed might have
+    zero accounts — give it a default one; (2) any Transaction still missing
+    account_id gets backfilled onto its plan's oldest account, so the "every
+    transaction has an account" invariant holds for old data too, not just
+    new entries going forward.
+    """
+    from models import Plan, Account, Transaction
+
+    plan_ids_without_accounts = [
+        pid for (pid,) in
+        db.session.query(Plan.id)
+        .outerjoin(Account, Account.plan_id == Plan.id)
+        .filter(Account.id.is_(None))
+        .all()
+    ]
+    for pid in plan_ids_without_accounts:
+        database.session.add(Account(plan_id=pid, name="Conta principal", initial_balance=0))
+    if plan_ids_without_accounts:
+        database.session.commit()
+
+    orphan_plan_ids = [
+        pid for (pid,) in
+        db.session.query(Transaction.plan_id)
+        .filter(Transaction.account_id.is_(None), Transaction.plan_id.isnot(None))
+        .distinct()
+        .all()
+    ]
+    for pid in orphan_plan_ids:
+        default_account = Account.query.filter_by(plan_id=pid).order_by(Account.created_at).first()
+        if not default_account:
+            continue
+        database.session.execute(
+            Transaction.__table__.update()
+            .where(Transaction.plan_id == pid, Transaction.account_id.is_(None))
+            .values(account_id=default_account.id)
+        )
+    if orphan_plan_ids:
+        database.session.commit()
+
+
+def _migrate_ai_messages_to_conversations(database):
+    """
+    One-time migration: AiMessage predates AiConversation (the whole history
+    used to be a single unbroken thread per plan). Any row still missing a
+    conversation_id gets grouped by (user_id, plan_id) into one new
+    AiConversation each, titled from that group's first user message, so
+    pre-existing chat history doesn't just vanish from the sidebar.
+    """
+    from models import AiMessage, AiConversation
+
+    orphan_groups = (
+        db.session.query(AiMessage.user_id, AiMessage.plan_id)
+        .filter(AiMessage.conversation_id.is_(None))
+        .distinct()
+        .all()
+    )
+
+    for uid, pid in orphan_groups:
+        msgs = (
+            AiMessage.query
+            .filter_by(user_id=uid, plan_id=pid, conversation_id=None)
+            .order_by(AiMessage.created_at)
+            .all()
+        )
+        if not msgs:
+            continue
+
+        first_user_msg = next((m for m in msgs if m.role == "user"), msgs[0])
+        title = (first_user_msg.content or "Conversa")[:60]
+
+        conversation = AiConversation(user_id=uid, plan_id=pid, title=title, updated_at=msgs[-1].created_at)
+        database.session.add(conversation)
+        database.session.flush()  # need conversation.id
+
+        database.session.execute(
+            AiMessage.__table__.update()
+            .where(AiMessage.id.in_([m.id for m in msgs]))
+            .values(conversation_id=conversation.id)
+        )
+        database.session.commit()
+
+
 def create_app():
     app = Flask(__name__)
 
@@ -183,11 +368,23 @@ def create_app():
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(api_bp, url_prefix="/api")
+    app.register_blueprint(ai_bp, url_prefix="/api/ai")
+
+    @app.errorhandler(HTTPException)
+    def _json_http_error(e):
+        # Every other error path in this API already returns JSON (via
+        # jsonify(...)) — an abort(...)-raised HTTPException is the one
+        # exception, so normalize it too instead of Flask's default HTML
+        # error page, which the frontend's fetch client can't parse as JSON.
+        return jsonify({"error": e.description}), e.code
 
     with app.app_context():
         db.create_all()
         _migrate(db)
         _migrate_legacy_credit_transactions(db)
+        _migrate_users_to_plans(db)
+        _migrate_ensure_default_accounts(db)
+        _migrate_ai_messages_to_conversations(db)
 
     return app
 

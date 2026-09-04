@@ -25,6 +25,9 @@ Thumbs.db
 .idea/
 *.swp
 
+# Local data export/import (contains real financial data)
+scripts/prod_export.json
+
 # Terraform
 infra/.terraform/
 infra/*.tfstate

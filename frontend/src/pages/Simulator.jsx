@@ -313,6 +313,7 @@ export default function Simulator() {
             onCancel={() => setModal(null)}
             loading={false}
             categories={categories}
+            requireAccount={false}
           />
         </Modal>
       )}
