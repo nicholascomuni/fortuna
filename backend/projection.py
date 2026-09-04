@@ -104,7 +104,10 @@ def _make_occurrence(tx, occurrence_date: date, amount: float = None) -> dict:
         "frequency": getattr(tx, "frequency", None),
         "payment_method": getattr(tx, "payment_method", None) or "a_vista",
         "interest_rate": getattr(tx, "interest_rate", None),
+        "interest_period": getattr(tx, "interest_period", None),
+        "interest_count": getattr(tx, "interest_count", None),
         "is_interest_child": getattr(tx, "is_interest_child", False) or False,
+        "parent_id": getattr(tx, "parent_id", None),
         "source": getattr(tx, "source", None),
         "source_card_id": getattr(tx, "source_card_id", None),
     }

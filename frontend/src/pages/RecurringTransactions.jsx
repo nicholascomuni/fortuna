@@ -141,10 +141,11 @@ export default function RecurringTransactions() {
                       )}
                     </td>
                     <td style={{ padding: "0.875rem 1rem" }}>
-                      {row.kind === "receita"
-                        ? <span className="badge-green">↑ Receita</span>
-                        : <span className="badge-red">↓ Despesa</span>
-                      }
+                      {row.kind === "receita" ? (
+                        <span className="badge-green">↑<span className="hidden sm:inline"> Receita</span></span>
+                      ) : (
+                        <span className="badge-red">↓<span className="hidden sm:inline"> Despesa</span></span>
+                      )}
                     </td>
                     <td style={{ padding: "0.875rem 1rem" }}>
                       {row.payment_method && row.payment_method !== "a_vista" ? (

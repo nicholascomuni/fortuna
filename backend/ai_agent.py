@@ -28,6 +28,11 @@ import routes as api_routes
 ai_bp = Blueprint("ai", __name__)
 
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# Explicit rather than relying on the API's own default (also 1.0, so this
+# matches out of the box) — 0.7 keeps tool-call arguments reliable while
+# still reading natural/conversational, closer to ChatGPT's product feel
+# than a fully deterministic low temperature would.
+TEMPERATURE = float(os.environ.get("OPENAI_TEMPERATURE", "0.7"))
 MAX_HISTORY = 24
 MAX_TOOL_ITERATIONS = 6
 
@@ -312,7 +317,7 @@ def _build_system_prompt(uid: int, pid: int) -> str:
     ) or "(nenhum cartão cadastrado ainda)"
     categories_txt = ", ".join(categories) or "(nenhuma ainda)"
 
-    return f"""Você é o assistente financeiro do app "Minhas Finanças". Responda sempre em português do Brasil, de forma direta, natural e amigável. Valores são em Reais (BRL).
+    return f"""Você é o assistente financeiro do app "Fortuna". Responda sempre em português do Brasil, com um tom natural, amigável e conversacional — como o ChatGPT ou o Claude respondem: explique seu raciocínio quando fizer análises, dê contexto útil junto dos números (não apenas o número seco), ofereça observações ou sugestões relevantes quando fizer sentido, e sinta-se à vontade para responder com alguns parágrafos quando o assunto pedir. Não precisa ser telegráfico — só evite encher linguiça sem necessidade. Valores são em Reais (BRL).
 
 Data de hoje: {date.today().isoformat()}
 Plano ativo: "{plan.name if plan else '?'}" (id={pid})
@@ -335,8 +340,7 @@ Regras:
 - Para datas relativas ("ontem", "essa semana", "mês que vem"), use a data de hoje acima como referência.
 - Pagamento no cartão de crédito usa create_credit_purchase/update_credit_purchase/delete_credit_purchase (nunca create_transaction com payment_method de cartão) — escolha o card_id certo pela lista de cartões acima.
 - Ao citar contas ou cartões, use os ids exatos da lista acima.
-- account_id é obrigatório em create_transaction/update_transaction. Se houver só uma conta cadastrada, use-a automaticamente sem perguntar. Se houver mais de uma e o usuário não especificou qual, pergunte qual conta usar antes de propor a ação — nunca escolha uma ao acaso. Em update_transaction, se o usuário não pediu para mudar a conta, mantenha o account_id que o lançamento já tinha (consulte com list_transactions antes de editar).
-- Seja conciso."""
+- account_id é obrigatório em create_transaction/update_transaction. Se houver só uma conta cadastrada, use-a automaticamente sem perguntar. Se houver mais de uma e o usuário não especificou qual, pergunte qual conta usar antes de propor a ação — nunca escolha uma ao acaso. Em update_transaction, se o usuário não pediu para mudar a conta, mantenha o account_id que o lançamento já tinha (consulte com list_transactions antes de editar)."""
 
 
 # ── Agent turn orchestration ─────────────────────────────────────────────────
@@ -377,7 +381,9 @@ def run_agent_turn(uid: int, pid: int, conversation, user_text: str) -> list:
 
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
-            resp = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS, tool_choice="auto")
+            resp = client.chat.completions.create(
+                model=MODEL, messages=messages, tools=TOOLS, tool_choice="auto", temperature=TEMPERATURE,
+            )
         except Exception as e:
             err_msg = AiMessage(user_id=uid, plan_id=pid, conversation_id=conversation.id, role="assistant", content=f"Erro ao consultar a IA: {e}")
             db.session.add(err_msg)

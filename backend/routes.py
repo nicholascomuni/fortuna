@@ -25,10 +25,14 @@ def _generate_interest_children(parent: Transaction) -> list[Transaction]:
     base = float(parent.amount)
     children = []
     current_date = parent.date + delta
-    # Despesas use interest for cost growth over time (e.g. inflation on a
-    # long-term commitment) rather than investment income, so the label
-    # matches — the math (compound growth of the base amount) is identical.
-    label = "Rendimento" if parent.kind == "receita" else "Reajuste"
+
+    # A parceled invoice ("parcelar fatura") reuses this exact same parent+
+    # children/compound-growth machinery, but the parent already IS
+    # installment 1 (routes.py::parcelar_fatura divided its amount before
+    # calling this) — so children just need "(n/total)" labels, not the
+    # generic Rendimento/Reajuste ones.
+    is_invoice_installment = parent.source == "credit_invoice"
+    total_installments = count + 1
 
     for n in range(1, count + 1):
         # Value after n periods minus value after n-1 periods = incremental interest
@@ -36,12 +40,30 @@ def _generate_interest_children(parent: Transaction) -> list[Transaction]:
         value_after  = base * ((1 + rate / 100) ** n)
         increment    = round(value_after - value_before, 2)
 
+        if is_invoice_installment:
+            # Each installment is a real payment of its own — its amount is
+            # the compounded VALUE at that period (installment 2 = base
+            # grown one period, installment 3 = two periods, ...), not the
+            # delta between periods. The delta is right for "Reajuste" below
+            # (an extra charge layered on top of an already-settled amount)
+            # but would badly understate a loan installment here.
+            amount = round(value_after, 2)
+            description = f"{parent.description} ({n + 1}/{total_installments})"
+        else:
+            amount = increment
+            # Despesas use interest for cost growth over time (e.g. inflation
+            # on a long-term commitment) rather than investment income, so
+            # the label matches — the math (compound growth of the base
+            # amount) is identical.
+            label = "Rendimento" if parent.kind == "receita" else "Reajuste"
+            description = f"{label} — {parent.description}"
+
         child = Transaction(
             user_id=parent.user_id,
             plan_id=parent.plan_id,
             account_id=parent.account_id,
-            description=f"{label} — {parent.description}",
-            amount=increment,
+            description=description,
+            amount=amount,
             kind=parent.kind,
             type="pontual",
             date=current_date,
@@ -360,6 +382,80 @@ def delete_transaction(tx_id):
     _delete_transaction_family(tx, uid, pid)
     db.session.commit()
     return jsonify({"message": "Movimentação excluída com sucesso."})
+
+
+@bp.route("/transactions/<int:tx_id>/parcelar-fatura", methods=["POST"])
+@jwt_required()
+def parcelar_fatura(tx_id):
+    """
+    Finance an invoice ("parcelar a fatura") instead of paying it in full on
+    the due date — splits it into N growing installments, reusing the exact
+    same parent+interest-children/compound-growth machinery as "juros em
+    despesas" (_generate_interest_children). The parent Transaction (already
+    the invoice row synced by credit_cards.sync_invoice_transaction) becomes
+    installment 1/N — its amount is reduced to total/N — and interest_count
+    is set to N-1 so the loop generates exactly the remaining N-1 growing
+    installments as children.
+
+    Once interest_rate is set here, sync_invoice_transaction leaves this row
+    alone on future syncs (see its own docstring) instead of overwriting the
+    amount back to the raw charge total — so new purchases billing the same
+    month won't silently clobber an active installment plan.
+    """
+    uid = _uid()
+    pid = _current_plan_id(uid)
+    tx = Transaction.query.filter_by(id=tx_id, user_id=uid, plan_id=pid).first_or_404()
+
+    if tx.source != "credit_invoice":
+        return jsonify({"error": "Só é possível parcelar lançamentos de fatura."}), 409
+    if tx.interest_rate:
+        return jsonify({"error": "Esta fatura já está parcelada."}), 409
+
+    data = request.get_json(force=True)
+    errors = []
+
+    count = None
+    try:
+        count = int(data.get("interest_count", 0))
+        if count < 2 or count > 60:
+            errors.append("Número de parcelas deve estar entre 2 e 60.")
+    except (TypeError, ValueError):
+        errors.append("Número de parcelas inválido.")
+
+    rate = None
+    try:
+        rate = float(data.get("interest_rate", 0))
+        if rate <= 0:
+            errors.append("Taxa de juros deve ser maior que zero.")
+    except (TypeError, ValueError):
+        errors.append("Taxa de juros inválida.")
+
+    period = data.get("interest_period")
+    if period not in ("mensal", "anual"):
+        errors.append("Período deve ser 'mensal' ou 'anual'.")
+
+    if errors:
+        return jsonify({"errors": errors}), 400
+
+    base_description = tx.description
+    total = float(tx.amount)
+
+    tx.amount = round(total / count, 2)
+    tx.interest_rate = rate
+    tx.interest_period = period
+    tx.interest_count = count - 1  # parent = installment 1; children = installments 2..count
+
+    for child in list(tx.children):
+        db.session.delete(child)
+    db.session.flush()
+
+    for child in _generate_interest_children(tx):
+        db.session.add(child)
+
+    tx.description = f"{base_description} (1/{count})"
+
+    db.session.commit()
+    return jsonify(tx.to_dict())
 
 
 # ── Recurring rules ───────────────────────────────────────────────────────────

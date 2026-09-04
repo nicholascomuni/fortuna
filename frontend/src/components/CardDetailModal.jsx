@@ -233,12 +233,10 @@ export default function CardDetailModal({ card, cards, categories, onClose, onCh
       {detailInvoice && (
         <EntryDetailModal
           title={`Fatura ${card.name}`}
-          badge={{ label: "Gerada automaticamente", bg: "rgba(99,102,241,0.12)", color: "#6366f1" }}
           fields={[
             { label: "Valor", value: formatBRL(detailInvoice.amount), strong: true },
             { label: "Vencimento", value: formatDate(detailInvoice.date) },
           ]}
-          note="Esta fatura é gerada automaticamente a partir das compras no cartão."
           onClose={() => setDetailInvoice(null)}
         />
       )}

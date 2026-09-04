@@ -81,6 +81,8 @@ export const api = {
     request(`/transactions/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteTransaction: (id) =>
     request(`/transactions/${id}`, { method: "DELETE" }),
+  parcelarFatura: (id, data) =>
+    request(`/transactions/${id}/parcelar-fatura`, { method: "POST", body: JSON.stringify(data) }),
 
   // Recurring
   getRecurring: () => request("/recurring"),

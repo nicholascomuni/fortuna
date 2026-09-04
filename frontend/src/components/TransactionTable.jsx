@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import { formatBRL, formatDate } from "../utils/format";
-import { IconEdit, IconTrash, IconAlertTriangle, IconChevronDown } from "./Icons";
+import { IconEdit, IconTrash, IconAlertTriangle, IconChevronDown, IconCheck } from "./Icons";
 import EntryDetailModal from "./EntryDetailModal";
 
 const freqLabel = { semanal: "Semanal", mensal: "Mensal", anual: "Anual" };
 const paymentLabel = { a_vista: "À vista", debito: "Débito", cartao_credito: "Cartão de crédito" };
 
-function buildDetailFields(row, cardById) {
+// A fatura-installment child (created by "parcelar fatura") is still a plain
+// Transaction with is_interest_child=true — it reuses the same compound-growth
+// machinery as the generic "Reajuste"/"Rendimento" interest children, but its
+// parent is the invoice row (source === "credit_invoice"), not a regular
+// despesa/receita. Children deliberately don't inherit that source themselves
+// (so delete_transaction's credit_invoice guard doesn't block deleting them),
+// so telling them apart means looking up the parent by id.
+function isFaturaInstallment(row, txById) {
+  if (!row.is_interest_child || row.parent_id == null) return false;
+  return txById.get(row.parent_id)?.source === "credit_invoice";
+}
+
+function buildDetailFields(row, cardById, txById) {
   const fields = [
     { label: "Valor", value: `${row.kind === "receita" ? "+" : "−"}${formatBRL(row.amount)}`, strong: true },
     { label: "Tipo", value: row.kind === "receita" ? "Receita" : "Despesa" },
@@ -23,7 +35,14 @@ function buildDetailFields(row, cardById) {
   } else {
     fields.push({ label: "Forma de pagamento", value: paymentLabel[row.payment_method] ?? row.payment_method });
     if (row.type === "recorrente") fields.push({ label: "Recorrência", value: freqLabel[row.frequency] ?? row.frequency });
-    if (row.is_interest_child) fields.push({ label: "Origem", value: row.kind === "receita" ? "Rendimento de juros" : "Reajuste por juros" });
+    if (row.is_interest_child) {
+      fields.push({
+        label: "Origem",
+        value: isFaturaInstallment(row, txById)
+          ? "Parcela de fatura parcelada"
+          : row.kind === "receita" ? "Rendimento de juros" : "Reajuste por juros",
+      });
+    }
   }
   return fields;
 }
@@ -35,17 +54,31 @@ function Checkbox({ checked, indeterminate, onChange }) {
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = !!indeterminate;
   }, [indeterminate]);
+  const active = checked || indeterminate;
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      style={{
-        width: "1rem", height: "1rem", cursor: "pointer",
-        accentColor: "#2563eb", borderRadius: "0.25rem",
-      }}
-    />
+    <label style={{ position: "relative", display: "inline-flex", width: "1.15rem", height: "1.15rem", flexShrink: 0, cursor: "pointer" }}>
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", margin: 0, opacity: 0, cursor: "pointer" }}
+      />
+      <span
+        style={{
+          width: "100%", height: "100%", borderRadius: "0.4rem",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          border: `1.5px solid ${active ? "#2563eb" : "var(--border-input)"}`,
+          backgroundColor: active ? "#2563eb" : "var(--bg-input)",
+          transition: "background-color 0.15s, border-color 0.15s",
+        }}
+      >
+        {checked && <IconCheck className="w-3 h-3" style={{ color: "#fff", strokeWidth: 3 }} />}
+        {indeterminate && !checked && (
+          <span style={{ width: "0.5rem", height: "2px", borderRadius: "1px", backgroundColor: "#fff" }} />
+        )}
+      </span>
+    </label>
   );
 }
 
@@ -124,12 +157,26 @@ function BulkBar({ count, onDelete, onClear }) {
   );
 }
 
+// Selection/bulk-delete needs one consistent id per row, but rows come from
+// two different tables (Transaction vs CreditPurchase) — prefix so a
+// transaction #7 and a purchase #7 never collide, and Dashboard's bulk
+// delete can tell which API to call. Invoice rows aren't selectable at all
+// (auto-generated, not directly deletable this way).
+function selectionId(row) {
+  if (row.source === "credit_invoice") return null;
+  const txId = row.id ?? row.transaction_id;
+  if (txId != null) return `tx:${txId}`;
+  if (row.purchase_id != null) return `purchase:${row.purchase_id}`;
+  return null;
+}
+
 // ── Main table ────────────────────────────────────────────────────────────────
 
 export default function TransactionTable({ rows, loading, onEdit, onDelete, onBulkDelete, cards = [] }) {
   const [selected, setSelected] = useState(new Set());
   const [detailRow, setDetailRow] = useState(null);
   const cardById = new Map(cards.map(c => [c.id, c]));
+  const txById = new Map(rows.filter(r => r.transaction_id != null).map(r => [r.transaction_id, r]));
 
   // Clear selection when rows change (filter, reload)
   useEffect(() => setSelected(new Set()), [rows]);
@@ -152,7 +199,7 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
   );
 
   const showBalance = rows[0]?.balance !== undefined;
-  const rowIds = rows.map(r => r.id ?? r.transaction_id).filter(Boolean);
+  const rowIds = rows.map(selectionId).filter(Boolean);
   const allChecked = rowIds.length > 0 && rowIds.every(id => selected.has(id));
   const someChecked = rowIds.some(id => selected.has(id));
 
@@ -205,7 +252,7 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
           </thead>
           <tbody>
             {rows.map((row, i) => {
-              const id = row.id ?? row.transaction_id;
+              const id = selectionId(row);
               const isSelected = id != null && selected.has(id);
               const negBal = showBalance && row.balance < 0;
               const baseBg = isSelected
@@ -241,26 +288,6 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                   </td>
                   <td style={{ padding: "0.75rem", color: "var(--text-base)", fontWeight: 500 }}>
                     <span>{row.description}</span>
-                    {row.type === "recorrente" && (
-                      <span style={{ marginLeft: "0.375rem", fontSize: "0.75rem", color: "#60a5fa", fontWeight: 400 }}>
-                        · {freqLabel[row.frequency] ?? row.frequency}
-                      </span>
-                    )}
-                    {row.is_interest_child && (
-                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: row.kind === "receita" ? "rgba(16,185,129,0.12)" : "rgba(225,29,72,0.12)", color: row.kind === "receita" ? "#10b981" : "#e11d48" }}>
-                        {row.kind === "receita" ? "% rendimento" : "% reajuste"}
-                      </span>
-                    )}
-                    {row.source === "credit_invoice" && (
-                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(99,102,241,0.12)", color: "#6366f1" }}>
-                        Fatura{cardById.get(row.source_card_id) ? `: ${cardById.get(row.source_card_id).name}` : ""}
-                      </span>
-                    )}
-                    {row.source === "credit_purchase" && (
-                      <span style={{ marginLeft: "0.375rem", fontSize: "0.68rem", fontWeight: 600, padding: "0.1rem 0.4rem", borderRadius: "9999px", backgroundColor: "rgba(234,88,12,0.12)", color: "#ea580c" }}>
-                        Compra no cartão{cardById.get(row.card_id) ? `: ${cardById.get(row.card_id).name}` : ""}
-                      </span>
-                    )}
                   </td>
                   <td style={{ padding: "0.75rem" }}>
                     {row.category
@@ -281,28 +308,26 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                   )}
                   {(onEdit || onDelete) && (
                     <td style={{ padding: "0.75rem", textAlign: "right" }} onClick={e => e.stopPropagation()}>
-                      {row.source !== "credit_invoice" && (
-                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {onEdit && (
-                            <button onClick={() => onEdit(row)} title="Editar"
-                              style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "rgba(37,99,235,0.1)"; }}
-                              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
-                            >
-                              <IconEdit />
-                            </button>
-                          )}
-                          {onDelete && (
-                            <button onClick={() => onDelete(row)} title="Excluir"
-                              style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.color = "#e11d48"; e.currentTarget.style.backgroundColor = "rgba(225,29,72,0.1)"; }}
-                              onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
-                            >
-                              <IconTrash />
-                            </button>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {onEdit && (
+                          <button onClick={() => onEdit(row)} title="Editar"
+                            style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
+                            onMouseEnter={e => { e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "rgba(37,99,235,0.1)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
+                          >
+                            <IconEdit />
+                          </button>
+                        )}
+                        {onDelete && row.source !== "credit_invoice" && (
+                          <button onClick={() => onDelete(row)} title="Excluir"
+                            style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
+                            onMouseEnter={e => { e.currentTarget.style.color = "#e11d48"; e.currentTarget.style.backgroundColor = "rgba(225,29,72,0.1)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
+                          >
+                            <IconTrash />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -321,15 +346,16 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
               : detailRow.source === "credit_purchase"
               ? { label: `Compra no cartão${cardById.get(detailRow.card_id) ? `: ${cardById.get(detailRow.card_id).name}` : ""}`, bg: "rgba(234,88,12,0.12)", color: "#ea580c" }
               : detailRow.is_interest_child
-              ? (detailRow.kind === "receita"
+              ? (isFaturaInstallment(detailRow, txById)
+                  ? { label: "Parcela de fatura", bg: "rgba(99,102,241,0.12)", color: "#6366f1" }
+                  : detailRow.kind === "receita"
                   ? { label: "% rendimento", bg: "rgba(16,185,129,0.12)", color: "#10b981" }
                   : { label: "% reajuste", bg: "rgba(225,29,72,0.12)", color: "#e11d48" })
               : null
           }
-          fields={buildDetailFields(detailRow, cardById)}
-          note={detailRow.source === "credit_invoice" ? "Esta fatura é gerada automaticamente a partir das compras no cartão. Edite as compras em Cartões." : null}
+          fields={buildDetailFields(detailRow, cardById, txById)}
           onClose={() => setDetailRow(null)}
-          onEdit={onEdit && detailRow.source !== "credit_invoice" ? () => { setDetailRow(null); onEdit(detailRow); } : null}
+          onEdit={onEdit ? () => { setDetailRow(null); onEdit(detailRow); } : null}
           onDelete={onDelete && detailRow.source !== "credit_invoice" ? () => { setDetailRow(null); onDelete(detailRow); } : null}
         />
       )}

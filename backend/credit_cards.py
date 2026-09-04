@@ -64,6 +64,12 @@ def sync_invoice_transaction(user_id: int, card: CreditCard, year: int, month: i
         return
 
     if existing:
+        if existing.interest_rate:
+            # Already financed via routes.py::parcelar_fatura — its amount is
+            # now installment 1/N, not the raw charge total, and it owns a
+            # family of installment children. Leave it alone; overwriting
+            # here would silently corrupt the installment plan.
+            return
         # Never reassign the date here — a due-day change must not retroactively
         # move an invoice that was already created.
         existing.amount = total

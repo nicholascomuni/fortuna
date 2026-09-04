@@ -5,6 +5,7 @@ import SummaryCard from "../components/SummaryCard";
 import BalanceChart from "../components/BalanceChart";
 import TransactionTable from "../components/TransactionTable";
 import TransactionForm from "../components/TransactionForm";
+import ParcelarFaturaModal from "../components/ParcelarFaturaModal";
 import { useConfirm } from "../components/ConfirmDialog";
 import {
   IconTrendingUp, IconTrendingDown, IconWallet,
@@ -46,6 +47,7 @@ export default function Dashboard() {
 
   const { confirm, confirmEl }            = useConfirm();
   const [editing, setEditing]             = useState(null);
+  const [parcelando, setParcelando]       = useState(null);
   const [saveLoading, setSaveLoading]     = useState(false);
   const [toast, setToast]                 = useState(null);
   const [cards, setCards]                 = useState([]);
@@ -96,7 +98,7 @@ export default function Dashboard() {
 
   async function handleOpenEdit(row) {
     if (row.source === "credit_invoice") {
-      showToast("Esta fatura é gerada automaticamente. Edite as compras em Cartões.", "error");
+      setParcelando(row);
       return;
     }
     if (row.source === "credit_purchase") {
@@ -108,11 +110,16 @@ export default function Dashboard() {
     try {
       const txs = await api.getTransactions();
       let tx = txs.find(t => t.id === txId) ?? row;
-      // If it's an interest child, open the parent instead
+      // If it's an interest child, open the parent instead — unless that
+      // parent is itself a parceled fatura, which has its own edit flow.
       if (tx.is_interest_child && tx.parent_id) {
         tx = txs.find(t => t.id === tx.parent_id) ?? tx;
       }
-      setEditing(tx);
+      if (tx.source === "credit_invoice") {
+        setParcelando(tx);
+      } else {
+        setEditing(tx);
+      }
     } catch { setEditing(row); }
   }
 
@@ -131,7 +138,12 @@ export default function Dashboard() {
 
   async function handleDelete(rowOrId) {
     if (typeof rowOrId === "object" && rowOrId.source === "credit_invoice") {
-      showToast("Esta fatura é gerada automaticamente. Edite as compras em Cartões.", "error");
+      showToast(
+        rowOrId.interest_rate
+          ? "Para desfazer o parcelamento, exclua uma das parcelas geradas por ele."
+          : "Esta fatura é gerada automaticamente a partir das compras no cartão. Edite as compras em Cartões, ou parcele a fatura pelo botão Editar.",
+        "error"
+      );
       return;
     }
     if (typeof rowOrId === "object" && rowOrId.source === "credit_purchase") {
@@ -159,7 +171,13 @@ export default function Dashboard() {
     const ok = await confirm({ title: `Excluir ${ids.length} movimentação(ões)?`, message: "Esta ação não pode ser desfeita.", confirmLabel: "Excluir tudo" });
     if (!ok) return;
     try {
-      await Promise.all(ids.map(id => api.deleteTransaction(id)));
+      // ids come from TransactionTable's selectionId() — "tx:<id>" for
+      // regular transactions (incl. interest children), "purchase:<id>"
+      // for card purchases — each needs a different delete endpoint.
+      await Promise.all(ids.map(id => {
+        const [kind, rawId] = id.split(":");
+        return kind === "purchase" ? api.deleteCreditPurchase(rawId) : api.deleteTransaction(rawId);
+      }));
       showToast(`${ids.length} movimentação(ões) excluída(s).`);
       load();
     } catch (err) { showToast(err.message, "error"); }
@@ -178,6 +196,14 @@ export default function Dashboard() {
           <TransactionForm initial={editing} cards={cards} accounts={accounts} onSubmit={handleEditSave}
             onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
         </Modal>
+      )}
+
+      {parcelando && (
+        <ParcelarFaturaModal
+          transaction={{ ...parcelando, id: parcelando.id ?? parcelando.transaction_id }}
+          onClose={() => setParcelando(null)}
+          onDone={() => { setParcelando(null); showToast("Fatura parcelada!"); load(); }}
+        />
       )}
 
       {/* Header */}

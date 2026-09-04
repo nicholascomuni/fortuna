@@ -266,10 +266,11 @@ export default function Simulator() {
                         )}
                       </td>
                       <td style={{ padding: "0.75rem" }}>
-                        {tx.kind === "receita"
-                          ? <span className="badge-green">↑ Receita</span>
-                          : <span className="badge-red">↓ Despesa</span>
-                        }
+                        {tx.kind === "receita" ? (
+                          <span className="badge-green">↑<span className="hidden sm:inline"> Receita</span></span>
+                        ) : (
+                          <span className="badge-red">↓<span className="hidden sm:inline"> Despesa</span></span>
+                        )}
                       </td>
                       <td style={{ padding: "0.75rem", fontWeight: 600, whiteSpace: "nowrap", color: tx.kind === "receita" ? "#10b981" : "#f43f5e" }}>
                         {tx.kind === "receita" ? "+" : "−"}{formatBRL(tx.amount)}
