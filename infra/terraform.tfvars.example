@@ -6,6 +6,11 @@ project_name = "controle-financeiro"
 # separate multiple origins. Leave as "*" until then.
 cors_origins = "*"
 
+# Required for the AI assistant to work — get one at platform.openai.com.
+# Leave unset/empty to deploy without it (the assistant just reports itself
+# as unconfigured instead of erroring). Never commit a real key.
+openai_api_key = ""
+
 # Leave false for the first `terraform apply` (see infra/README.md), then
 # switch to true and re-apply once CI has pushed an image to ECR.
 create_apprunner_service = false

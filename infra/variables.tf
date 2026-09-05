@@ -69,6 +69,18 @@ variable "apprunner_unsupported_subnet_ids" {
   default = ["subnet-0d50ea61e2c4b8ee9"]
 }
 
+variable "openai_api_key" {
+  description = <<-EOT
+    OpenAI API key used by the backend's AI assistant (OPENAI_API_KEY).
+    Leave empty to deploy without it — the assistant then reports itself
+    as unconfigured instead of erroring. Set this in a local, gitignored
+    terraform.tfvars, never commit a real key.
+  EOT
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
 variable "create_apprunner_service" {
   description = <<-EOT
     Whether to create the App Runner service. Keep this false on the FIRST apply

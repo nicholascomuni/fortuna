@@ -119,6 +119,16 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
   secret_string = random_password.jwt_secret.result
 }
 
+resource "aws_secretsmanager_secret" "openai_api_key" {
+  name                    = "${var.project_name}/openai-api-key"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "openai_api_key" {
+  secret_id     = aws_secretsmanager_secret.openai_api_key.id
+  secret_string = var.openai_api_key
+}
+
 # ---------------------------------------------------------------------------
 # ECR — where CI pushes the backend image.
 # ---------------------------------------------------------------------------
@@ -189,6 +199,7 @@ data "aws_iam_policy_document" "apprunner_instance_secrets" {
     resources = [
       aws_secretsmanager_secret.database_url.arn,
       aws_secretsmanager_secret.jwt_secret.arn,
+      aws_secretsmanager_secret.openai_api_key.arn,
     ]
   }
 }
@@ -243,6 +254,7 @@ resource "aws_apprunner_service" "backend" {
         runtime_environment_secrets = {
           DATABASE_URL   = aws_secretsmanager_secret.database_url.arn
           JWT_SECRET_KEY = aws_secretsmanager_secret.jwt_secret.arn
+          OPENAI_API_KEY = aws_secretsmanager_secret.openai_api_key.arn
         }
       }
     }
