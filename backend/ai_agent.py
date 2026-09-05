@@ -69,7 +69,7 @@ _TRANSACTION_PROPS = {
     "date": _DATE,
     "category": {"type": "string", "description": "Categoria (opcional)"},
     "payment_method": {"type": "string", "enum": ["a_vista", "debito"], "description": "Forma de pagamento (não usar para cartão de crédito — use create_credit_purchase)"},
-    "account_id": {"type": "integer", "description": "ID da conta bancária de origem/destino — obrigatório"},
+    "account_id": {"type": "integer", "description": "ID da conta bancária de origem/destino — obrigatório. Use -1 para se referir à conta que você está criando NESTA MESMA resposta com create_account (nunca invente ou reaproveite um id existente para isso)."},
     "interest_rate": {"type": "number", "description": "Taxa de juros por período, em % (opcional)"},
     "interest_period": {"type": "string", "enum": ["mensal", "anual"]},
     "interest_count": {"type": "integer", "description": "Número de períodos de juros"},
@@ -85,7 +85,7 @@ _CARD_PROPS = {
     "due_day": {"type": "integer", "description": "Dia de vencimento da fatura, de 1 a 31"},
     "credit_limit": {"type": "number", "description": "Limite de crédito (opcional)"},
     "color": {"type": "string", "description": "Cor do cartão em hexadecimal, ex: #6366f1 (opcional)"},
-    "account_id": {"type": "integer", "description": "ID da conta bancária usada para pagar a fatura (opcional)"},
+    "account_id": {"type": "integer", "description": "ID da conta bancária usada para pagar a fatura (opcional). Use -1 para se referir à conta que você está criando NESTA MESMA resposta com create_account."},
 }
 
 _ACCOUNT_PROPS = {
@@ -97,7 +97,7 @@ _ACCOUNT_PROPS = {
 _PURCHASE_PROPS = {
     "description": {"type": "string"},
     "total_amount": {"type": "number", "description": "Valor total da compra, maior que zero"},
-    "card_id": {"type": "integer", "description": "ID do cartão de crédito"},
+    "card_id": {"type": "integer", "description": "ID do cartão de crédito. Use -1 para se referir ao cartão que você está criando NESTA MESMA resposta com create_card (nunca invente ou reaproveite um id existente para isso)."},
     "purchase_date": _DATE,
     "category": {"type": "string"},
     "installments": {"type": "integer", "description": "Número de parcelas (só para type=pontual)"},
@@ -525,7 +525,8 @@ Regras:
 - Para datas relativas ("ontem", "essa semana", "mês que vem"), use a data de hoje acima como referência.
 - Pagamento no cartão de crédito usa create_credit_purchase/update_credit_purchase/delete_credit_purchase (nunca create_transaction com payment_method de cartão) — escolha o card_id certo pela lista de cartões acima, ou crie o cartão primeiro se ele ainda não existir.
 - Ao citar contas ou cartões, use os ids EXATOS da lista mostrada NESTA mensagem (ela é sempre gerada de novo a cada turno com o estado real e atual). Nunca reaproveite um id de conta/cartão que só apareceu em mensagens anteriores da conversa (ex.: "cartão #4" numa confirmação antiga) sem conferir que ele ainda está na lista atual — contas e cartões podem ter sido editados, renomeados ou excluídos entre uma mensagem e outra, e um id que não existe mais causa erro "Conta inválida"/"Cartão inválido" ao confirmar. Na dúvida, rode get_accounts/get_cards de novo antes de propor a ação.
-- account_id é obrigatório em create_transaction/update_transaction. Se houver só uma conta cadastrada, use-a automaticamente sem perguntar. Se houver mais de uma e o usuário não especificou qual, pergunte qual conta usar antes de propor a ação — nunca escolha uma ao acaso. Se não houver nenhuma conta ainda, crie uma (create_account) antes de propor a movimentação. Em update_transaction, se o usuário não pediu para mudar a conta, mantenha o account_id que o lançamento já tinha (consulte com list_transactions antes de editar).
+- Se o usuário pede para criar uma conta/cartão NOVO e já lançar algo nele na MESMA resposta, você ainda não sabe o id real (só existirá depois que create_account/create_card for de fato confirmado) — NUNCA invente um número para isso, e NUNCA reaproveite o id de uma conta/cartão existente diferente só porque é o único que há. Use o valor -1 em account_id/card_id para dizer "é a conta/cartão que estou criando nesta mesma resposta" — o sistema substitui isso automaticamente pelo id real assim que a criação for confirmada. Exemplo: usuário pede para criar a conta "Conta da Família" e já lançar uma receita nela → create_account(name="Conta da Família", ...) + create_transaction(..., account_id=-1) na mesma resposta.
+- account_id é obrigatório em create_transaction/update_transaction. Se houver só uma conta cadastrada, use-a automaticamente sem perguntar. Se houver mais de uma e o usuário não especificou qual, pergunte qual conta usar antes de propor a ação — nunca escolha uma ao acaso. Se não houver nenhuma conta ainda, crie uma (create_account) antes de ou junto com a movimentação (usando -1, como acima). Em update_transaction, se o usuário não pediu para mudar a conta, mantenha o account_id que o lançamento já tinha (consulte com list_transactions antes de editar).
 - update_card/update_account substituem todos os campos do registro, não só os citados — antes de propor uma edição parcial (ex.: só mudar o limite do cartão), reaproveite os demais valores já mostrados na lista de cartões/contas acima (ou consulte get_cards/get_accounts se precisar confirmar) para não apagar dados que o usuário não pediu para mudar."""
 
 
@@ -802,16 +803,41 @@ def run_agent_turn_stream(uid: int, pid: int, conversation, user_text: str):
 def execute_pending_actions(uid: int, pid: int, ai_message: AiMessage) -> AiMessage:
     pending = json.loads(ai_message.pending_actions or "[]")
 
+    # The model sometimes proposes creating an account/card in the same
+    # batch as transactions/purchases meant to use it — it can't know the
+    # real id yet when it writes those calls, so it guesses one, which is
+    # wrong once the real row is created and fails every dependent action
+    # with "Conta/Cartão inválido". Track anything actually created so far
+    # in this batch so a later action's now-dangling id can be transparently
+    # patched to the real one — but only when there's exactly one candidate
+    # of that type; with more than one it's ambiguous which was meant, so
+    # it's left alone to fail normally rather than guess wrong.
+    new_account_ids = []
+    new_card_ids = []
+
     for action in pending:
         if action["status"] != "pending":
             continue
+        args = action["arguments"]
+
+        if action["tool"] in ("create_transaction", "update_transaction") and args.get("account_id") is not None:
+            if len(new_account_ids) == 1 and not Account.query.filter_by(id=args["account_id"], plan_id=pid).first():
+                args["account_id"] = new_account_ids[0]
+        elif action["tool"] in ("create_credit_purchase", "update_credit_purchase") and args.get("card_id") is not None:
+            if len(new_card_ids) == 1 and not CreditCard.query.filter_by(id=args["card_id"], user_id=uid, plan_id=pid).first():
+                args["card_id"] = new_card_ids[0]
+
         try:
-            resource = _execute_write_tool(uid, pid, action["tool"], action["arguments"])
+            resource = _execute_write_tool(uid, pid, action["tool"], args)
             db.session.commit()
             action["status"] = "confirmed"
             if resource:
                 resource_type, obj = resource
                 action["result"] = {"resource_type": resource_type, **obj.to_dict()}
+                if resource_type == "account":
+                    new_account_ids.append(obj.id)
+                elif resource_type == "card":
+                    new_card_ids.append(obj.id)
         except ValueError as e:
             db.session.rollback()
             action["status"] = "failed"
