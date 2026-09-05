@@ -84,7 +84,7 @@ function PlanSwitcher({ user }) {
 
       {open && (
         <div style={{
-          position: "absolute", right: 0, top: "calc(100% + 0.375rem)", zIndex: 30,
+          position: "absolute", left: 0, top: "calc(100% + 0.375rem)", zIndex: 30,
           width: "16rem", backgroundColor: "var(--bg-card)", border: "1px solid var(--border)",
           borderRadius: "0.75rem", boxShadow: "0 10px 25px -5px rgb(0 0 0/.15)", overflow: "hidden",
         }}>
@@ -174,106 +174,151 @@ export default function Layout({ children }) {
         : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
     }`;
 
+  const sidebarLinkClass = ({ isActive }) =>
+    `flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+      isActive
+        ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+        : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+    }`;
+
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-page)", color: "var(--text-primary)" }} className="flex flex-col">
-      <header
-        style={{ backgroundColor: "var(--bg-header)", borderBottom: "1px solid var(--border)" }}
-        className="backdrop-blur-md sticky top-0 z-20"
+    <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-page)", color: "var(--text-primary)" }} className="flex">
+
+      {/* ── Sidebar — desktop/tablet only (EXPERIMENTAL: left-side nav test) ── */}
+      <aside
+        className="hidden md:flex md:flex-col"
+        style={{
+          width: "15rem", flexShrink: 0, borderRight: "1px solid var(--border)",
+          backgroundColor: "var(--bg-header)", position: "sticky", top: 0, height: "100vh",
+        }}
       >
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 flex items-center justify-between h-14 gap-2 sm:gap-4">
-
-          {/* Hamburger — mobile/tablet only */}
-          <button
-            onClick={() => setMobileOpen(v => !v)}
-            className="btn-ghost p-2 rounded-xl md:hidden"
-            title="Menu"
-          >
-            {mobileOpen ? <IconX className="w-5 h-5" /> : <IconMenu className="w-5 h-5" />}
-          </button>
-
-          {/* Logo */}
-          <div className="flex items-center gap-2 shrink-0">
-            <IconFortuna className="w-7 h-7 block" />
-            <span style={{ color: "var(--text-primary)" }} className="font-bold text-sm tracking-tight hidden sm:inline">
-              Fortuna
-            </span>
-          </div>
-
-          {/* Nav — desktop/tablet only */}
-          <nav className="hidden md:flex items-center gap-1">
-            {navItems.map(({ to, label, Icon }) => (
-              <NavLink key={to} to={to} end={to === "/"} className={navLinkClass}>
-                <Icon className="w-4 h-4" />
-                <span className="hidden lg:inline">{label}</span>
-              </NavLink>
-            ))}
-          </nav>
-
-          {/* Right side */}
-          <div className="flex items-center gap-1 shrink-0 min-w-0">
-            <div className="hidden sm:block min-w-0">
-              <PlanSwitcher user={user} />
-            </div>
-
-            <ProfileLink user={user} />
-
-            {/* Theme toggle */}
-            <button
-              onClick={toggle}
-              className="btn-ghost p-2 rounded-xl"
-              title={dark ? "Modo claro" : "Modo escuro"}
-            >
-              {dark
-                ? <IconSun className="w-4 h-4 text-amber-400" />
-                : <IconMoon className="w-4 h-4" />
-              }
-            </button>
-
-            {/* Logout */}
-            <button
-              onClick={handleLogout}
-              className="btn-ghost p-2 rounded-xl"
-              title="Sair"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <IconLogOut className="w-4 h-4" />
-            </button>
-          </div>
+        <div className="flex items-center gap-2 px-4 shrink-0" style={{ height: "3.5rem", borderBottom: "1px solid var(--border)" }}>
+          <IconFortuna className="w-7 h-7 block" />
+          <span style={{ color: "var(--text-primary)" }} className="font-bold text-sm tracking-tight">
+            Fortuna
+          </span>
         </div>
 
-        {/* Mobile menu panel — icon + label, plan switcher included */}
-        {mobileOpen && (
-          <div
-            className="md:hidden"
-            style={{ borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-header)" }}
-          >
-            <nav className="max-w-7xl mx-auto px-3 py-2 flex flex-col gap-0.5">
-              {navItems.map(({ to, label, Icon }) => (
-                <NavLink
-                  key={to} to={to} end={to === "/"} className={navLinkClass}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </NavLink>
-              ))}
-            </nav>
-            <div className="sm:hidden px-3 pb-3">
-              <PlanSwitcher user={user} />
+        <div className="px-3 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+          <PlanSwitcher user={user} />
+        </div>
+
+        <nav className="flex-1 flex flex-col gap-1 p-3 overflow-y-auto">
+          {navItems.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} end={to === "/"} className={sidebarLinkClass}>
+              <Icon className="w-4 h-4" />
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="p-3 flex flex-col gap-2 shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="flex items-center justify-between">
+            <ProfileLink user={user} />
+            <div className="flex items-center gap-1">
+              <button
+                onClick={toggle}
+                className="btn-ghost p-2 rounded-xl"
+                title={dark ? "Modo claro" : "Modo escuro"}
+              >
+                {dark
+                  ? <IconSun className="w-4 h-4 text-amber-400" />
+                  : <IconMoon className="w-4 h-4" />
+                }
+              </button>
+              <button
+                onClick={handleLogout}
+                className="btn-ghost p-2 rounded-xl"
+                title="Sair"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <IconLogOut className="w-4 h-4" />
+              </button>
             </div>
           </div>
-        )}
-      </header>
+        </div>
+      </aside>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        {children}
-      </main>
+      {/* ── Main column ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile-only top bar — nav lives in the dropdown panel below it */}
+        <header
+          style={{ backgroundColor: "var(--bg-header)", borderBottom: "1px solid var(--border)" }}
+          className="backdrop-blur-md sticky top-0 z-20 md:hidden"
+        >
+          <div className="px-3 sm:px-6 flex items-center justify-between h-14 gap-2 sm:gap-4">
 
-      <footer className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-3">
-        <p style={{ color: "var(--text-muted)", fontSize: "0.7rem", textAlign: "center" }} title={`Commit ${__APP_VERSION__}`}>
-          v{__APP_VERSION__}
-        </p>
-      </footer>
+            <button
+              onClick={() => setMobileOpen(v => !v)}
+              className="btn-ghost p-2 rounded-xl"
+              title="Menu"
+            >
+              {mobileOpen ? <IconX className="w-5 h-5" /> : <IconMenu className="w-5 h-5" />}
+            </button>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <IconFortuna className="w-7 h-7 block" />
+              <span style={{ color: "var(--text-primary)" }} className="font-bold text-sm tracking-tight hidden sm:inline">
+                Fortuna
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0 min-w-0">
+              <ProfileLink user={user} />
+
+              <button
+                onClick={toggle}
+                className="btn-ghost p-2 rounded-xl"
+                title={dark ? "Modo claro" : "Modo escuro"}
+              >
+                {dark
+                  ? <IconSun className="w-4 h-4 text-amber-400" />
+                  : <IconMoon className="w-4 h-4" />
+                }
+              </button>
+
+              <button
+                onClick={handleLogout}
+                className="btn-ghost p-2 rounded-xl"
+                title="Sair"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <IconLogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile menu panel — icon + label, plan switcher included */}
+          {mobileOpen && (
+            <div style={{ borderTop: "1px solid var(--border)", backgroundColor: "var(--bg-header)" }}>
+              <nav className="px-3 py-2 flex flex-col gap-0.5">
+                {navItems.map(({ to, label, Icon }) => (
+                  <NavLink
+                    key={to} to={to} end={to === "/"} className={navLinkClass}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {label}
+                  </NavLink>
+                ))}
+              </nav>
+              <div className="px-3 pb-3">
+                <PlanSwitcher user={user} />
+              </div>
+            </div>
+          )}
+        </header>
+
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6">
+          {children}
+        </main>
+
+        <footer className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-3">
+          <p style={{ color: "var(--text-muted)", fontSize: "0.7rem", textAlign: "center" }} title={`Commit ${__APP_VERSION__}`}>
+            v{__APP_VERSION__}
+          </p>
+        </footer>
+      </div>
 
       <GlobalQuickAdd />
       {!onAssistantPage && <AiChatWidget />}
