@@ -64,6 +64,31 @@ class Plan(db.Model):
         return {"id": self.id, "name": self.name, "created_at": self.created_at.isoformat()}
 
 
+class PlanShare(db.Model):
+    """
+    Grants another user (identified by email — they may not have registered
+    yet) access to a Plan the caller owns, at a given permission level.
+    Resolved by email at read-time rather than a stored user_id, so sharing
+    with someone who signs up later just works once their email matches.
+    """
+    __tablename__ = "plan_shares"
+
+    id = db.Column(db.Integer, primary_key=True)
+    plan_id = db.Column(db.Integer, db.ForeignKey("plans.id"), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    permission = db.Column(db.String(10), nullable=False, default="read")  # 'read' | 'edit'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "plan_id": self.plan_id,
+            "email": self.email,
+            "permission": self.permission,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
 class Account(db.Model):
     """A bank account inside a Plan. Transactions may optionally point to one."""
     __tablename__ = "accounts"

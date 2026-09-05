@@ -56,6 +56,7 @@ WRITE_TOOL_NAMES = {
     "create_credit_purchase", "update_credit_purchase", "delete_credit_purchase",
     "create_card", "update_card", "delete_card",
     "create_account", "update_account", "delete_account",
+    "create_plan", "update_plan",
     "parcelar_fatura",
 }
 
@@ -68,8 +69,8 @@ _TRANSACTION_PROPS = {
     "type": {"type": "string", "enum": ["pontual", "recorrente"]},
     "date": _DATE,
     "category": {"type": "string", "description": "Categoria (opcional)"},
-    "payment_method": {"type": "string", "enum": ["a_vista", "debito"], "description": "Forma de pagamento (não usar para cartão de crédito — use create_credit_purchase)"},
-    "account_id": {"type": "integer", "description": "ID da conta bancária de origem/destino — obrigatório. Use -1 para se referir à conta que você está criando NESTA MESMA resposta com create_account (nunca invente ou reaproveite um id existente para isso)."},
+    "payment_method": {"type": "string", "enum": ["a_vista"], "description": "Forma de pagamento (não usar para cartão de crédito — use create_credit_purchase)"},
+    "account_id": {"type": "integer", "description": "ID da conta bancária de origem/destino — obrigatório. Use -1 para se referir à conta que você está criando NESTA MESMA resposta com create_account (nunca invente ou reaproveite um id existente para isso). Se estiver criando MAIS de uma conta nova na mesma resposta, use -1 para a primeira create_account, -2 para a segunda, e assim por diante, na ordem em que aparecem na sua resposta."},
     "interest_rate": {"type": "number", "description": "Taxa de juros por período, em % (opcional)"},
     "interest_period": {"type": "string", "enum": ["mensal", "anual"]},
     "interest_count": {"type": "integer", "description": "Número de períodos de juros"},
@@ -85,7 +86,7 @@ _CARD_PROPS = {
     "due_day": {"type": "integer", "description": "Dia de vencimento da fatura, de 1 a 31"},
     "credit_limit": {"type": "number", "description": "Limite de crédito (opcional)"},
     "color": {"type": "string", "description": "Cor do cartão em hexadecimal, ex: #6366f1 (opcional)"},
-    "account_id": {"type": "integer", "description": "ID da conta bancária usada para pagar a fatura (opcional). Use -1 para se referir à conta que você está criando NESTA MESMA resposta com create_account."},
+    "account_id": {"type": "integer", "description": "ID da conta bancária usada para pagar a fatura (opcional). Use -1 para se referir à conta que você está criando NESTA MESMA resposta com create_account. Se estiver criando mais de uma conta nova na mesma resposta, use -1 para a primeira, -2 para a segunda, etc., na ordem em que aparecem."},
 }
 
 _ACCOUNT_PROPS = {
@@ -94,10 +95,14 @@ _ACCOUNT_PROPS = {
     "initial_balance": {"type": "number", "description": "Saldo inicial da conta (opcional, padrão 0)"},
 }
 
+_PLAN_PROPS = {
+    "name": {"type": "string", "description": "Nome do plano de contas"},
+}
+
 _PURCHASE_PROPS = {
     "description": {"type": "string"},
     "total_amount": {"type": "number", "description": "Valor total da compra, maior que zero"},
-    "card_id": {"type": "integer", "description": "ID do cartão de crédito. Use -1 para se referir ao cartão que você está criando NESTA MESMA resposta com create_card (nunca invente ou reaproveite um id existente para isso)."},
+    "card_id": {"type": "integer", "description": "ID do cartão de crédito. Use -1 para se referir ao cartão que você está criando NESTA MESMA resposta com create_card (nunca invente ou reaproveite um id existente para isso). Se estiver criando MAIS de um cartão novo na mesma resposta, use -1 para o primeiro create_card, -2 para o segundo, e assim por diante, na ordem em que aparecem na sua resposta."},
     "purchase_date": _DATE,
     "category": {"type": "string"},
     "installments": {"type": "integer", "description": "Número de parcelas (só para type=pontual)"},
@@ -138,8 +143,7 @@ TOOLS = [
         "description": (
             "Lista todos os planos de contas do usuário (cada plano é uma dashboard independente, com suas "
             "próprias contas/cartões/lançamentos) e qual deles está ativo agora. Use para responder perguntas "
-            "sobre planos de contas ou para orientar o usuário — você NÃO tem uma ferramenta para criar ou "
-            "trocar de plano; explique que isso é feito pelo menu 'Trocar plano de contas' no topo da tela."
+            "sobre planos de contas, ou para descobrir o id de um plano antes de renomeá-lo com update_plan."
         ),
         "parameters": {"type": "object", "properties": {}},
     }},
@@ -228,6 +232,22 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {"account_id": {"type": "integer"}}, "required": ["account_id"]},
     }},
     {"type": "function", "function": {
+        "name": "create_plan",
+        "description": (
+            "Propõe a criação de um novo plano de contas — uma dashboard independente, começando vazia, "
+            "com uma conta 'Conta principal' de saldo zero. NÃO ativa o plano novo automaticamente: o "
+            "usuário continua vendo o plano atual até trocar manualmente pelo menu 'Trocar plano de contas' "
+            "no topo da tela (trocar via chat recarregaria a página no meio da conversa). Nunca executa direto."
+        ),
+        "parameters": {"type": "object", "properties": _PLAN_PROPS, "required": ["name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "update_plan",
+        "description": "Propõe renomear um plano de contas existente do usuário (qualquer um da lista de get_plans, não precisa ser o ativo). Nunca executa direto.",
+        "parameters": {"type": "object", "properties": {"plan_id": {"type": "integer"}, **_PLAN_PROPS},
+                        "required": ["plan_id", "name"]},
+    }},
+    {"type": "function", "function": {
         "name": "parcelar_fatura",
         "description": (
             "Propõe financiar uma fatura de cartão de crédito (uma transação com origem 'credit_invoice'), "
@@ -248,7 +268,7 @@ TOOLS = [
 # ── Read tool execution (runs immediately) ──────────────────────────────────
 
 def _tool_list_transactions(uid, pid, args):
-    q = Transaction.query.filter_by(user_id=uid, plan_id=pid)
+    q = Transaction.query.filter_by(plan_id=pid)
     if args.get("kind"):
         q = q.filter_by(kind=args["kind"])
     if args.get("category"):
@@ -266,13 +286,13 @@ def _tool_get_accounts(uid, pid, args):
 
 
 def _tool_get_cards(uid, pid, args):
-    return [c.to_dict() for c in CreditCard.query.filter_by(user_id=uid, plan_id=pid).order_by(CreditCard.created_at).all()]
+    return [c.to_dict() for c in CreditCard.query.filter_by(plan_id=pid).order_by(CreditCard.created_at).all()]
 
 
 def _tool_get_categories(uid, pid, args):
     rows = (
         db.session.query(Transaction.category)
-        .filter(Transaction.user_id == uid, Transaction.plan_id == pid, Transaction.category.isnot(None))
+        .filter(Transaction.plan_id == pid, Transaction.category.isnot(None))
         .distinct().all()
     )
     return sorted({r[0] for r in rows if r[0]})
@@ -295,7 +315,7 @@ def _tool_get_reports(uid, pid, args):
 
 
 def _tool_get_credit_purchases(uid, pid, args):
-    q = CreditPurchase.query.filter_by(user_id=uid, plan_id=pid)
+    q = CreditPurchase.query.filter_by(plan_id=pid)
     if args.get("card_id"):
         q = q.filter_by(card_id=args["card_id"])
     return [p.to_dict() for p in q.order_by(CreditPurchase.purchase_date).limit(200).all()]
@@ -327,12 +347,35 @@ def _execute_write_tool(uid: int, pid: int, tool_name: str, args: dict):
     resource on screen worth showing (create/update/parcelar_fatura), so the
     caller can attach a clickable resource widget to the pending action once
     committed; returns None for deletes, which leave nothing to show.
+
+    Every lookup here is scoped by plan_id alone (never user_id) — a plan
+    shared with 'edit' permission lets its collaborator act on the owner's
+    own rows, not just their own. The single access gate is right below:
+    a 'read'-only share raises before any of this runs.
     """
     data = dict(args)
+
+    # Plan management acts on the user's own plan list, not the active plan
+    # (pid) — a read-only collaborator on a shared plan must still be able
+    # to create/rename their OWN plans, and update_plan can target a
+    # plan_id different from pid. So these two bypass the pid-scoped gate
+    # below and authorize by direct ownership instead.
+    if tool_name == "create_plan":
+        return "plan", api_routes._build_plan_from_data(uid, data, activate=False)
+    elif tool_name == "update_plan":
+        plan = Plan.query.filter_by(id=args.get("plan_id"), user_id=uid).first()
+        if not plan:
+            raise ValueError(["Plano não encontrado."])
+        api_routes._apply_plan_data(plan, data)
+        return "plan", plan
+
+    if api_routes._plan_permission(uid, pid) not in ("owner", "edit"):
+        raise ValueError(["Você só tem acesso de leitura a este plano de contas."])
+
     if tool_name == "create_transaction":
         return "transaction", api_routes._build_transaction_from_data(uid, pid, data)
     elif tool_name == "update_transaction":
-        tx = Transaction.query.filter_by(id=args.get("transaction_id"), user_id=uid, plan_id=pid).first()
+        tx = Transaction.query.filter_by(id=args.get("transaction_id"), plan_id=pid).first()
         if not tx:
             raise ValueError(["Lançamento não encontrado."])
         if tx.source == "credit_invoice":
@@ -340,7 +383,7 @@ def _execute_write_tool(uid: int, pid: int, tool_name: str, args: dict):
         api_routes._apply_transaction_data(tx, pid, data)
         return "transaction", tx
     elif tool_name == "delete_transaction":
-        tx = Transaction.query.filter_by(id=args.get("transaction_id"), user_id=uid, plan_id=pid).first()
+        tx = Transaction.query.filter_by(id=args.get("transaction_id"), plan_id=pid).first()
         if not tx:
             raise ValueError(["Lançamento não encontrado."])
         if tx.source == "credit_invoice":
@@ -350,13 +393,13 @@ def _execute_write_tool(uid: int, pid: int, tool_name: str, args: dict):
     elif tool_name == "create_credit_purchase":
         return "credit_purchase", api_routes._build_credit_purchase_from_data(uid, pid, data)
     elif tool_name == "update_credit_purchase":
-        purchase = CreditPurchase.query.filter_by(id=args.get("purchase_id"), user_id=uid, plan_id=pid).first()
+        purchase = CreditPurchase.query.filter_by(id=args.get("purchase_id"), plan_id=pid).first()
         if not purchase:
             raise ValueError(["Compra não encontrada."])
         api_routes._apply_credit_purchase_data(uid, pid, purchase, data)
         return "credit_purchase", purchase
     elif tool_name == "delete_credit_purchase":
-        purchase = CreditPurchase.query.filter_by(id=args.get("purchase_id"), user_id=uid, plan_id=pid).first()
+        purchase = CreditPurchase.query.filter_by(id=args.get("purchase_id"), plan_id=pid).first()
         if not purchase:
             raise ValueError(["Compra não encontrada."])
         api_routes._delete_credit_purchase_obj(uid, pid, purchase)
@@ -364,13 +407,13 @@ def _execute_write_tool(uid: int, pid: int, tool_name: str, args: dict):
     elif tool_name == "create_card":
         return "card", api_routes._build_card_from_data(uid, pid, data)
     elif tool_name == "update_card":
-        card = CreditCard.query.filter_by(id=args.get("card_id"), user_id=uid, plan_id=pid).first()
+        card = CreditCard.query.filter_by(id=args.get("card_id"), plan_id=pid).first()
         if not card:
             raise ValueError(["Cartão não encontrado."])
         api_routes._apply_card_data(card, pid, data)
         return "card", card
     elif tool_name == "delete_card":
-        card = CreditCard.query.filter_by(id=args.get("card_id"), user_id=uid, plan_id=pid).first()
+        card = CreditCard.query.filter_by(id=args.get("card_id"), plan_id=pid).first()
         if not card:
             raise ValueError(["Cartão não encontrado."])
         api_routes._delete_card_obj(card)
@@ -390,7 +433,7 @@ def _execute_write_tool(uid: int, pid: int, tool_name: str, args: dict):
         api_routes._delete_account_obj(account)
         return None
     elif tool_name == "parcelar_fatura":
-        tx = Transaction.query.filter_by(id=args.get("transaction_id"), user_id=uid, plan_id=pid).first()
+        tx = Transaction.query.filter_by(id=args.get("transaction_id"), plan_id=pid).first()
         if not tx:
             raise ValueError(["Lançamento não encontrado."])
         api_routes._finance_invoice(tx, data)
@@ -434,6 +477,10 @@ def _describe_action(tool_name: str, args: dict) -> str:
         return f"Editar conta #{args.get('account_id')} para \"{args.get('name', '')}\""
     if tool_name == "delete_account":
         return f"Excluir conta #{args.get('account_id')}"
+    if tool_name == "create_plan":
+        return f"Criar plano de contas \"{args.get('name', '')}\""
+    if tool_name == "update_plan":
+        return f"Renomear plano de contas #{args.get('plan_id')} para \"{args.get('name', '')}\""
     if tool_name == "parcelar_fatura":
         return f"Parcelar fatura #{args.get('transaction_id')} em {args.get('interest_count', '')}x com juros de {args.get('interest_rate', '')}% {args.get('interest_period', '')}"
     return f"{tool_name}({args})"
@@ -445,7 +492,7 @@ def _build_system_prompt(uid: int, pid: int) -> str:
     plan = Plan.query.get(pid)
     all_plans = Plan.query.filter_by(user_id=uid).order_by(Plan.created_at).all()
     accounts = Account.query.filter_by(plan_id=pid).order_by(Account.created_at).all()
-    cards = CreditCard.query.filter_by(user_id=uid, plan_id=pid).order_by(CreditCard.created_at).all()
+    cards = CreditCard.query.filter_by(plan_id=pid).order_by(CreditCard.created_at).all()
     categories = _tool_get_categories(uid, pid, {})
 
     plans_txt = "\n".join(
@@ -470,7 +517,7 @@ Plano ativo: "{plan.name if plan else '?'}" (id={pid})
 
 Todos os planos de contas do usuário (cada um é uma dashboard independente, com suas próprias contas/cartões/lançamentos):
 {plans_txt}
-Você NÃO tem ferramenta para criar ou trocar de plano — se o usuário quiser um plano novo ou trocar de plano ativo, explique que isso é feito pelo menu "Trocar plano de contas" no topo da tela (trocar de plano recarrega a página, por isso não pode ser feito por aqui no meio da conversa).
+Você PODE criar um novo plano (create_plan) ou renomear um plano existente (update_plan), mas NÃO tem ferramenta para trocar o plano ativo — um plano recém-criado fica disponível na lista, mas o usuário continua vendo o plano atual até trocar manualmente pelo menu "Trocar plano de contas" no topo da tela (trocar de plano recarrega a página, por isso não pode ser feito por aqui no meio da conversa).
 
 Contas bancárias cadastradas no plano ativo:
 {accounts_txt}
@@ -512,11 +559,11 @@ Use TODAS as ferramentas de escrita disponíveis para representar o cenário com
 - Usuário quer financiar/parcelar uma fatura de cartão já existente em vez de pagá-la integral no vencimento → parcelar_fatura (peça o transaction_id da fatura via list_transactions se não souber, e confirme quantas parcelas e a taxa de juros com o usuário antes de propor).
 - Usuário menciona um cartão ou conta bancária pelo nome e ele NÃO corresponde a nenhum item da lista acima (mesmo que exista algum outro cartão/conta cadastrado, só que com nome diferente) → crie um novo com create_card/create_account antes de (ou junto com) lançar movimentações nele. Nunca reaproveite silenciosamente um cartão/conta existente só porque é o único que há — se o nome não bate, é um cartão/conta diferente e precisa ser criado. Exemplo: se a lista de cartões só tem id=2 nome="Roxinho" e o usuário fala do cartão "Nubank", NÃO use card_id=2 — chame create_card com name="Nubank" primeiro (peça o dia de vencimento se não foi dito), e só então use o id do cartão recém-criado.
 - Cartão ou conta precisam de correção (nome, banco, limite, vencimento, saldo inicial) ou remoção → update_card/delete_card/update_account/delete_account.
-- Dúvida sobre planos de contas → get_plans (mas lembre-se: você só lê, não cria/troca — oriente o usuário a fazer isso pelo menu no topo da tela).
+- Usuário pede um plano de contas novo ("começar do zero", "criar um plano separado para X") → create_plan. Lembre-se de deixar claro que o plano novo não fica ativo automaticamente — ele precisa trocar pelo menu no topo da tela para começar a usá-lo. Usuário quer renomear um plano (o atual ou outro da lista) → update_plan (use get_plans para confirmar o id se não tiver certeza). Trocar de plano ativo continua fora do seu alcance — oriente o usuário a fazer isso pelo menu no topo da tela.
 
 Você tem ferramentas de LEITURA (list_transactions, get_accounts, get_cards, get_categories, get_projection, get_reports, get_credit_purchases, get_plans) — chame-as livremente e proativamente sempre que precisar de dados reais para responder com precisão ou para descobrir ids antes de editar/excluir algo, sem pedir permissão antes. Prefira sempre checar o estado real a assumir algo a partir só do que já foi dito na conversa.
 
-Você também tem ferramentas de ESCRITA (create_transaction, update_transaction, delete_transaction, create_credit_purchase, update_credit_purchase, delete_credit_purchase, create_card, update_card, delete_card, create_account, update_account, delete_account, parcelar_fatura). IMPORTANTE: uma chamada a qualquer ferramenta de escrita NUNCA é executada imediatamente — o sistema sempre intercepta e mostra a ação para o usuário confirmar antes de aplicar de fato. Por isso você deve chamar essas ferramentas assim que tiver os dados necessários, com confiança, sem perguntar "posso confirmar?" antes — a confirmação já acontece depois, automaticamente, fora do seu controle. Pode inclusive propor várias ações de escrita na mesma resposta (ex.: criar uma conta, um cartão e já lançar a primeira compra nele; ou adicionar uma despesa e excluir outra) — todas serão apresentadas juntas para confirmação.
+Você também tem ferramentas de ESCRITA (create_transaction, update_transaction, delete_transaction, create_credit_purchase, update_credit_purchase, delete_credit_purchase, create_card, update_card, delete_card, create_account, update_account, delete_account, create_plan, update_plan, parcelar_fatura). IMPORTANTE: uma chamada a qualquer ferramenta de escrita NUNCA é executada imediatamente — o sistema sempre intercepta e mostra a ação para o usuário confirmar antes de aplicar de fato. Por isso você deve chamar essas ferramentas assim que tiver os dados necessários, com confiança, sem perguntar "posso confirmar?" antes — a confirmação já acontece depois, automaticamente, fora do seu controle. Pode inclusive propor várias ações de escrita na mesma resposta (ex.: criar uma conta, um cartão e já lançar a primeira compra nele; ou adicionar uma despesa e excluir outra) — todas serão apresentadas juntas para confirmação.
 
 Regras:
 - Se faltar informação essencial (valor, descrição ou data) para uma ação de escrita, pergunte ao usuário em vez de inventar valores. Isso vale especialmente para valores: NUNCA chame uma ferramenta de escrita com amount/total_amount igual a 0, um número "de exemplo", ou qualquer valor que o usuário não informou nem deu como calcular — isso cria lançamentos inválidos ou sem sentido. Se o usuário disse que usa um cartão "bastante" ou "para o dia a dia" sem dizer quanto gasta, pergunte um valor (pode ser uma média mensal) antes de propor create_credit_purchase.
@@ -525,7 +572,7 @@ Regras:
 - Para datas relativas ("ontem", "essa semana", "mês que vem"), use a data de hoje acima como referência.
 - Pagamento no cartão de crédito usa create_credit_purchase/update_credit_purchase/delete_credit_purchase (nunca create_transaction com payment_method de cartão) — escolha o card_id certo pela lista de cartões acima, ou crie o cartão primeiro se ele ainda não existir.
 - Ao citar contas ou cartões, use os ids EXATOS da lista mostrada NESTA mensagem (ela é sempre gerada de novo a cada turno com o estado real e atual). Nunca reaproveite um id de conta/cartão que só apareceu em mensagens anteriores da conversa (ex.: "cartão #4" numa confirmação antiga) sem conferir que ele ainda está na lista atual — contas e cartões podem ter sido editados, renomeados ou excluídos entre uma mensagem e outra, e um id que não existe mais causa erro "Conta inválida"/"Cartão inválido" ao confirmar. Na dúvida, rode get_accounts/get_cards de novo antes de propor a ação.
-- Se o usuário pede para criar uma conta/cartão NOVO e já lançar algo nele na MESMA resposta, você ainda não sabe o id real (só existirá depois que create_account/create_card for de fato confirmado) — NUNCA invente um número para isso, e NUNCA reaproveite o id de uma conta/cartão existente diferente só porque é o único que há. Use o valor -1 em account_id/card_id para dizer "é a conta/cartão que estou criando nesta mesma resposta" — o sistema substitui isso automaticamente pelo id real assim que a criação for confirmada. Exemplo: usuário pede para criar a conta "Conta da Família" e já lançar uma receita nela → create_account(name="Conta da Família", ...) + create_transaction(..., account_id=-1) na mesma resposta.
+- Se o usuário pede para criar uma conta/cartão NOVO e já lançar algo nele na MESMA resposta, você ainda não sabe o id real (só existirá depois que create_account/create_card for de fato confirmado) — NUNCA invente um número para isso, e NUNCA reaproveite o id de uma conta/cartão existente diferente só porque é o único que há. Use o valor -1 em account_id/card_id para dizer "é a conta/cartão que estou criando nesta mesma resposta" — o sistema substitui isso automaticamente pelo id real assim que a criação for confirmada, INDEPENDENTE da ordem em que você colocou as ações na resposta (pode chamar create_account/create_card antes ou depois de quem usa -1). Exemplo: usuário pede para criar a conta "Conta da Família" e já lançar uma receita nela → create_account(name="Conta da Família", ...) + create_transaction(..., account_id=-1) na mesma resposta. Se estiver criando MAIS de uma conta/cartão novo na mesma resposta, -1 sozinho é ambíguo — use -1 para se referir ao primeiro create_account/create_card que você chamou nesta resposta, -2 para o segundo, -3 para o terceiro, e assim por diante (a contagem é separada para contas e para cartões). Exemplo: criar "Cartão A" e "Cartão B" e já lançar uma compra em cada um → create_card(name="Cartão A", ...) + create_card(name="Cartão B", ...) + create_credit_purchase(..., card_id=-1) [vai para o Cartão A] + create_credit_purchase(..., card_id=-2) [vai para o Cartão B].
 - account_id é obrigatório em create_transaction/update_transaction. Se houver só uma conta cadastrada, use-a automaticamente sem perguntar. Se houver mais de uma e o usuário não especificou qual, pergunte qual conta usar antes de propor a ação — nunca escolha uma ao acaso. Se não houver nenhuma conta ainda, crie uma (create_account) antes de ou junto com a movimentação (usando -1, como acima). Em update_transaction, se o usuário não pediu para mudar a conta, mantenha o account_id que o lançamento já tinha (consulte com list_transactions antes de editar).
 - update_card/update_account substituem todos os campos do registro, não só os citados — antes de propor uma edição parcial (ex.: só mudar o limite do cartão), reaproveite os demais valores já mostrados na lista de cartões/contas acima (ou consulte get_cards/get_accounts se precisar confirmar) para não apagar dados que o usuário não pediu para mudar."""
 
@@ -805,28 +852,33 @@ def execute_pending_actions(uid: int, pid: int, ai_message: AiMessage) -> AiMess
 
     # The model sometimes proposes creating an account/card in the same
     # batch as transactions/purchases meant to use it — it can't know the
-    # real id yet when it writes those calls, so it guesses one, which is
-    # wrong once the real row is created and fails every dependent action
-    # with "Conta/Cartão inválido". Track anything actually created so far
-    # in this batch so a later action's now-dangling id can be transparently
-    # patched to the real one — but only when there's exactly one candidate
-    # of that type; with more than one it's ambiguous which was meant, so
-    # it's left alone to fail normally rather than guess wrong.
+    # real id yet when it writes those calls, so it uses a negative
+    # placeholder (-1 for the first new account/card in the batch, -2 for
+    # the second, etc. — see the -1 convention in the tool descriptions).
+    # Two things have to hold for that to resolve correctly:
+    #   1. Every create_account/create_card runs BEFORE anything that might
+    #      reference its placeholder — the model doesn't reliably propose
+    #      them in dependency order (it has proposed a card purchase before
+    #      the create_card it depends on), so this executes all creates
+    #      first regardless of their position in the original list.
+    #   2. Each placeholder resolves to a specific one of possibly several
+    #      new accounts/cards, by position (-1 => 1st created, -2 => 2nd,
+    #      ...) — a flat "only when there's exactly one" fallback silently
+    #      picks the wrong one whenever the model creates more than one.
+    # The original relative order is preserved in the stored pending_actions
+    # (these are the same dicts, just processed in a different sequence).
     new_account_ids = []
     new_card_ids = []
 
-    for action in pending:
-        if action["status"] != "pending":
-            continue
+    def resolve_placeholder(created_ids, value):
+        if isinstance(value, int) and value < 0:
+            idx = -value - 1
+            if idx < len(created_ids):
+                return created_ids[idx]
+        return value
+
+    def run(action):
         args = action["arguments"]
-
-        if action["tool"] in ("create_transaction", "update_transaction") and args.get("account_id") is not None:
-            if len(new_account_ids) == 1 and not Account.query.filter_by(id=args["account_id"], plan_id=pid).first():
-                args["account_id"] = new_account_ids[0]
-        elif action["tool"] in ("create_credit_purchase", "update_credit_purchase") and args.get("card_id") is not None:
-            if len(new_card_ids) == 1 and not CreditCard.query.filter_by(id=args["card_id"], user_id=uid, plan_id=pid).first():
-                args["card_id"] = new_card_ids[0]
-
         try:
             resource = _execute_write_tool(uid, pid, action["tool"], args)
             db.session.commit()
@@ -846,6 +898,20 @@ def execute_pending_actions(uid: int, pid: int, ai_message: AiMessage) -> AiMess
             db.session.rollback()
             action["status"] = "failed"
             action["error"] = str(e)
+
+    creates = [a for a in pending if a["status"] == "pending" and a["tool"] in ("create_account", "create_card")]
+    others = [a for a in pending if a["status"] == "pending" and a["tool"] not in ("create_account", "create_card")]
+
+    for action in creates:
+        run(action)
+
+    for action in others:
+        args = action["arguments"]
+        if action["tool"] in ("create_transaction", "update_transaction") and args.get("account_id") is not None:
+            args["account_id"] = resolve_placeholder(new_account_ids, args["account_id"])
+        elif action["tool"] in ("create_credit_purchase", "update_credit_purchase") and args.get("card_id") is not None:
+            args["card_id"] = resolve_placeholder(new_card_ids, args["card_id"])
+        run(action)
 
     ai_message.pending_actions = json.dumps(pending)
     db.session.commit()

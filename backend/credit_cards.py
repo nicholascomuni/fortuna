@@ -50,9 +50,12 @@ def sync_invoice_transaction(user_id: int, card: CreditCard, year: int, month: i
         .scalar()
     ) or 0
 
+    # Scoped by plan_id, not user_id — a shared plan's collaborator syncing
+    # this invoice must find the SAME row the owner (or anyone else) already
+    # created, or this would spawn a duplicate invoice Transaction per user.
     existing = (
         Transaction.query.filter_by(
-            user_id=user_id, source="credit_invoice", source_card_id=card.id,
+            plan_id=card.plan_id, source="credit_invoice", source_card_id=card.id,
         )
         .filter(Transaction.date >= month_start, Transaction.date <= month_end)
         .first()
