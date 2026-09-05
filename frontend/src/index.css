@@ -158,3 +158,45 @@ html, body {
   background-color: rgba(136,19,55,0.4);
   color: #fb7185;
 }
+
+/* ── Markdown-rendered chat messages ── */
+.md-content > *:first-child { margin-top: 0; }
+.md-content > *:last-child { margin-bottom: 0; }
+.md-content p { margin: 0 0 0.5em; }
+.md-content ul, .md-content ol { margin: 0 0 0.5em; padding-left: 1.25em; }
+.md-content li { margin: 0.125em 0; }
+.md-content li > p { margin: 0; }
+.md-content strong { font-weight: 700; }
+.md-content a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.md-content blockquote {
+  margin: 0 0 0.5em;
+  padding-left: 0.75em;
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
+}
+.md-content code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85em;
+  background-color: rgba(127,127,127,0.16);
+  padding: 0.1em 0.35em;
+  border-radius: 0.35em;
+}
+.md-content pre {
+  margin: 0 0 0.5em;
+  padding: 0.625em 0.75em;
+  border-radius: 0.625em;
+  background-color: rgba(127,127,127,0.14);
+  overflow-x: auto;
+}
+.md-content pre code { background: none; padding: 0; border-radius: 0; }
+.md-content hr { border: none; border-top: 1px solid var(--border); margin: 0.5em 0; }
+.md-content table { border-collapse: collapse; margin: 0 0 0.5em; font-size: 0.9em; }
+.md-content th, .md-content td { border: 1px solid var(--border); padding: 0.25em 0.5em; text-align: left; }
+.md-content h1, .md-content h2, .md-content h3, .md-content h4 {
+  margin: 0.5em 0 0.25em;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.md-content h1 { font-size: 1.15em; }
+.md-content h2 { font-size: 1.1em; }
+.md-content h3, .md-content h4 { font-size: 1.05em; }

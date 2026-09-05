@@ -4,7 +4,7 @@ import { IconX, IconEdit, IconTrash } from "./Icons";
 // card purchase…) — same glass-blur "liquid glass" look as the other
 // modals in the app. The caller builds the field list; this component just
 // renders it consistently.
-export default function EntryDetailModal({ title, badge, fields = [], note, onClose, onEdit, onDelete }) {
+export default function EntryDetailModal({ title, badge, fields = [], note, onClose, onEdit, onDelete, editLabel = "Editar", EditIcon = IconEdit }) {
   return (
     <div
       onClick={e => { e.stopPropagation(); onClose(); }}
@@ -50,7 +50,7 @@ export default function EntryDetailModal({ title, badge, fields = [], note, onCl
           <div style={{ display: "flex", gap: "0.75rem", paddingTop: "1rem", marginTop: "1rem", borderTop: note ? "none" : "1px solid var(--border)" }}>
             {onEdit && (
               <button onClick={onEdit} className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm">
-                <IconEdit className="w-3.5 h-3.5" /> Editar
+                <EditIcon className="w-3.5 h-3.5" /> {editLabel}
               </button>
             )}
             {onDelete && (

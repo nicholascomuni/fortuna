@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { formatBRL, formatDate } from "../utils/format";
-import { IconEdit, IconTrash, IconAlertTriangle, IconChevronDown, IconCheck } from "./Icons";
+import { IconEdit, IconTrash, IconAlertTriangle, IconChevronDown, IconCheck, IconPercent } from "./Icons";
 import EntryDetailModal from "./EntryDetailModal";
 
 const freqLabel = { semanal: "Semanal", mensal: "Mensal", anual: "Anual" };
@@ -310,12 +310,12 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                     <td style={{ padding: "0.75rem", textAlign: "right" }} onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {onEdit && (
-                          <button onClick={() => onEdit(row)} title="Editar"
+                          <button onClick={() => onEdit(row)} title={row.source === "credit_invoice" ? "Parcelar fatura" : "Editar"}
                             style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
                             onMouseEnter={e => { e.currentTarget.style.color = "#2563eb"; e.currentTarget.style.backgroundColor = "rgba(37,99,235,0.1)"; }}
                             onMouseLeave={e => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
                           >
-                            <IconEdit />
+                            {row.source === "credit_invoice" ? <IconPercent /> : <IconEdit />}
                           </button>
                         )}
                         {onDelete && row.source !== "credit_invoice" && (
@@ -357,6 +357,8 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
           onClose={() => setDetailRow(null)}
           onEdit={onEdit ? () => { setDetailRow(null); onEdit(detailRow); } : null}
           onDelete={onDelete && detailRow.source !== "credit_invoice" ? () => { setDetailRow(null); onDelete(detailRow); } : null}
+          editLabel={detailRow.source === "credit_invoice" ? "Parcelar fatura" : "Editar"}
+          EditIcon={detailRow.source === "credit_invoice" ? IconPercent : IconEdit}
         />
       )}
     </div>

@@ -405,13 +405,26 @@ def parcelar_fatura(tx_id):
     uid = _uid()
     pid = _current_plan_id(uid)
     tx = Transaction.query.filter_by(id=tx_id, user_id=uid, plan_id=pid).first_or_404()
-
-    if tx.source != "credit_invoice":
-        return jsonify({"error": "Só é possível parcelar lançamentos de fatura."}), 409
-    if tx.interest_rate:
-        return jsonify({"error": "Esta fatura já está parcelada."}), 409
-
     data = request.get_json(force=True)
+    try:
+        _finance_invoice(tx, data)
+    except ValueError as e:
+        return jsonify({"errors": e.args[0] if isinstance(e.args[0], list) else [str(e)]}), 400
+    db.session.commit()
+    return jsonify(tx.to_dict())
+
+
+def _finance_invoice(tx: Transaction, data: dict) -> None:
+    """
+    Validate *data* and turn an invoice Transaction into N growing
+    installments ("parcelar a fatura") — not committed. Raises
+    ValueError(errors_list) on invalid input or invalid state.
+    """
+    if tx.source != "credit_invoice":
+        raise ValueError(["Só é possível parcelar lançamentos de fatura."])
+    if tx.interest_rate:
+        raise ValueError(["Esta fatura já está parcelada."])
+
     errors = []
 
     count = None
@@ -435,7 +448,7 @@ def parcelar_fatura(tx_id):
         errors.append("Período deve ser 'mensal' ou 'anual'.")
 
     if errors:
-        return jsonify({"errors": errors}), 400
+        raise ValueError(errors)
 
     base_description = tx.description
     total = float(tx.amount)
@@ -453,9 +466,6 @@ def parcelar_fatura(tx_id):
         db.session.add(child)
 
     tx.description = f"{base_description} (1/{count})"
-
-    db.session.commit()
-    return jsonify(tx.to_dict())
 
 
 # ── Recurring rules ───────────────────────────────────────────────────────────
@@ -700,15 +710,11 @@ def list_cards():
     return jsonify(result)
 
 
-@bp.route("/cards", methods=["POST"])
-@jwt_required()
-def create_card():
-    uid = _uid()
-    pid = _current_plan_id(uid)
-    data = request.get_json(force=True)
+def _build_card_from_data(uid: int, pid: int, data: dict) -> CreditCard:
+    """Validate *data* and construct a new CreditCard — not committed. Raises ValueError(errors_list) on invalid input."""
     errors = _validate_card(data, pid)
     if errors:
-        return jsonify({"errors": errors}), 400
+        raise ValueError(errors)
 
     card = CreditCard(
         user_id=uid,
@@ -721,8 +727,35 @@ def create_card():
         color=(data.get("color") or "").strip() or None,
     )
     db.session.add(card)
+    return card
+
+
+@bp.route("/cards", methods=["POST"])
+@jwt_required()
+def create_card():
+    uid = _uid()
+    pid = _current_plan_id(uid)
+    data = request.get_json(force=True)
+    try:
+        card = _build_card_from_data(uid, pid, data)
+    except ValueError as e:
+        return jsonify({"errors": e.args[0]}), 400
     db.session.commit()
     return jsonify(card.to_dict()), 201
+
+
+def _apply_card_data(card: CreditCard, pid: int, data: dict) -> None:
+    """Validate *data* and overwrite *card*'s fields in place — not committed. Raises ValueError(errors_list) on invalid input."""
+    errors = _validate_card(data, pid)
+    if errors:
+        raise ValueError(errors)
+
+    card.name = data["name"].strip()
+    card.bank = (data.get("bank") or "").strip() or None
+    card.due_day = int(data["due_day"])
+    card.credit_limit = float(data["credit_limit"]) if data.get("credit_limit") not in (None, "") else None
+    card.color = (data.get("color") or "").strip() or None
+    card.account_id = data.get("account_id") or None
 
 
 @bp.route("/cards/<int:card_id>", methods=["PUT"])
@@ -732,18 +765,19 @@ def update_card(card_id):
     pid = _current_plan_id(uid)
     card = CreditCard.query.filter_by(id=card_id, user_id=uid, plan_id=pid).first_or_404()
     data = request.get_json(force=True)
-    errors = _validate_card(data, pid)
-    if errors:
-        return jsonify({"errors": errors}), 400
-
-    card.name = data["name"].strip()
-    card.bank = (data.get("bank") or "").strip() or None
-    card.due_day = int(data["due_day"])
-    card.credit_limit = float(data["credit_limit"]) if data.get("credit_limit") not in (None, "") else None
-    card.color = (data.get("color") or "").strip() or None
-    card.account_id = data.get("account_id") or None
+    try:
+        _apply_card_data(card, pid, data)
+    except ValueError as e:
+        return jsonify({"errors": e.args[0]}), 400
     db.session.commit()
     return jsonify(card.to_dict())
+
+
+def _delete_card_obj(card: CreditCard) -> None:
+    """Deletes *card* — not committed. Raises ValueError(message) if it has purchases linked."""
+    if CreditPurchase.query.filter_by(card_id=card.id).count() > 0:
+        raise ValueError("Este cartão possui compras vinculadas. Exclua ou transfira as compras antes de remover o cartão.")
+    db.session.delete(card)
 
 
 @bp.route("/cards/<int:card_id>", methods=["DELETE"])
@@ -752,9 +786,10 @@ def delete_card(card_id):
     uid = _uid()
     pid = _current_plan_id(uid)
     card = CreditCard.query.filter_by(id=card_id, user_id=uid, plan_id=pid).first_or_404()
-    if CreditPurchase.query.filter_by(card_id=card.id).count() > 0:
-        return jsonify({"error": "Este cartão possui compras vinculadas. Exclua ou transfira as compras antes de remover o cartão."}), 409
-    db.session.delete(card)
+    try:
+        _delete_card_obj(card)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
     db.session.commit()
     return jsonify({"message": "Cartão excluído com sucesso."})
 
@@ -1285,14 +1320,11 @@ def list_accounts():
     return jsonify([a.to_dict() for a in accounts])
 
 
-@bp.route("/accounts", methods=["POST"])
-@jwt_required()
-def create_account():
-    pid = _current_plan_id(_uid())
-    data = request.get_json(force=True)
+def _build_account_from_data(pid: int, data: dict) -> Account:
+    """Validate *data* and construct a new Account — not committed. Raises ValueError(errors_list) on invalid input."""
     errors = _validate_account(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        raise ValueError(errors)
 
     account = Account(
         plan_id=pid,
@@ -1301,8 +1333,31 @@ def create_account():
         initial_balance=float(data.get("initial_balance") or 0),
     )
     db.session.add(account)
+    return account
+
+
+@bp.route("/accounts", methods=["POST"])
+@jwt_required()
+def create_account():
+    pid = _current_plan_id(_uid())
+    data = request.get_json(force=True)
+    try:
+        account = _build_account_from_data(pid, data)
+    except ValueError as e:
+        return jsonify({"errors": e.args[0]}), 400
     db.session.commit()
     return jsonify(account.to_dict()), 201
+
+
+def _apply_account_data(account: Account, data: dict) -> None:
+    """Validate *data* and overwrite *account*'s fields in place — not committed. Raises ValueError(errors_list) on invalid input."""
+    errors = _validate_account(data)
+    if errors:
+        raise ValueError(errors)
+
+    account.name = data["name"].strip()
+    account.bank = (data.get("bank") or "").strip() or None
+    account.initial_balance = float(data.get("initial_balance") or 0)
 
 
 @bp.route("/accounts/<int:account_id>", methods=["PUT"])
@@ -1311,15 +1366,21 @@ def update_account(account_id):
     pid = _current_plan_id(_uid())
     account = Account.query.filter_by(id=account_id, plan_id=pid).first_or_404()
     data = request.get_json(force=True)
-    errors = _validate_account(data)
-    if errors:
-        return jsonify({"errors": errors}), 400
-
-    account.name = data["name"].strip()
-    account.bank = (data.get("bank") or "").strip() or None
-    account.initial_balance = float(data.get("initial_balance") or 0)
+    try:
+        _apply_account_data(account, data)
+    except ValueError as e:
+        return jsonify({"errors": e.args[0]}), 400
     db.session.commit()
     return jsonify(account.to_dict())
+
+
+def _delete_account_obj(account: Account) -> None:
+    """Deletes *account* — not committed. Raises ValueError(message) if it's still linked to transactions or a card."""
+    if Transaction.query.filter_by(account_id=account.id).count() > 0:
+        raise ValueError("Esta conta possui movimentações vinculadas. Edite ou exclua essas movimentações antes de remover a conta.")
+    if CreditCard.query.filter_by(account_id=account.id).count() > 0:
+        raise ValueError("Esta conta é a conta de pagamento de um cartão. Troque a conta do cartão antes de remover esta conta.")
+    db.session.delete(account)
 
 
 @bp.route("/accounts/<int:account_id>", methods=["DELETE"])
@@ -1327,10 +1388,9 @@ def update_account(account_id):
 def delete_account(account_id):
     pid = _current_plan_id(_uid())
     account = Account.query.filter_by(id=account_id, plan_id=pid).first_or_404()
-    if Transaction.query.filter_by(account_id=account.id).count() > 0:
-        return jsonify({"error": "Esta conta possui movimentações vinculadas. Edite ou exclua essas movimentações antes de remover a conta."}), 409
-    if CreditCard.query.filter_by(account_id=account.id).count() > 0:
-        return jsonify({"error": "Esta conta é a conta de pagamento de um cartão. Troque a conta do cartão antes de remover esta conta."}), 409
-    db.session.delete(account)
+    try:
+        _delete_account_obj(account)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
     db.session.commit()
     return jsonify({"message": "Conta excluída com sucesso."})

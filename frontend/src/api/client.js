@@ -29,6 +29,57 @@ async function request(path, options = {}) {
   return json;
 }
 
+// Streams the AI assistant's reply as Server-Sent Events over a plain
+// fetch (EventSource can't send an Authorization header or a POST body).
+// Each SSE frame is `data: <json>\n\n`; dispatches to onDelta/onMessage as
+// they arrive and resolves once the server sends its closing 'done' frame.
+async function streamAiMessage(conversationId, content, { onDelta, onMessage, onDone } = {}) {
+  const token = localStorage.getItem("token");
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE}/ai/conversations/${conversationId}/messages/stream`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ content }),
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+    return;
+  }
+  if (!res.ok || !res.body) {
+    let msg = `Erro ${res.status}`;
+    try {
+      const json = await res.json();
+      msg = (json.errors && json.errors.join(" ")) || json.error || msg;
+    } catch { /* body wasn't JSON (or already consumed) — keep default msg */ }
+    throw new Error(msg);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop(); // last chunk may be incomplete — keep it for next read
+    for (const frame of frames) {
+      const line = frame.split("\n").find(l => l.startsWith("data: "));
+      if (!line) continue;
+      const evt = JSON.parse(line.slice(6));
+      if (evt.type === "delta") onDelta?.(evt.content);
+      else if (evt.type === "message") onMessage?.(evt.message);
+      else if (evt.type === "done") onDone?.(evt.conversation);
+    }
+  }
+}
+
 // For the one call that must authenticate with a token that ISN'T the
 // stored session token — the short-lived 2FA pre_token from /auth/login.
 async function requestWithToken(path, token, options = {}) {
@@ -161,6 +212,7 @@ export const api = {
   getAiConversationMessages: (id) => request(`/ai/conversations/${id}/messages`),
   sendAiMessage: (conversationId, content) =>
     request(`/ai/conversations/${conversationId}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
+  streamAiMessage,
   confirmAiAction: (messageId) =>
     request(`/ai/messages/${messageId}/confirm`, { method: "POST" }),
   cancelAiAction: (messageId) =>

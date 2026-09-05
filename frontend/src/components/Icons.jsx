@@ -296,6 +296,16 @@ export function IconMaximize({ className = "w-5 h-5" }) {
   );
 }
 
+export function IconPercent({ className = "w-5 h-5" }) {
+  return (
+    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+    </svg>
+  );
+}
+
 export function IconMenu({ className = "w-5 h-5" }) {
   return (
     <svg className={`${base} ${className}`} viewBox="0 0 24 24">
