@@ -12,7 +12,7 @@ import {
   IconChart, IconRepeat, IconFlask,
   IconSun, IconMoon, IconLogOut, IconFortuna, IconBarChart, IconCreditCard,
   IconWallet, IconChevronDown, IconPlus, IconCheck, IconMenu, IconX, IconUserCircle,
-  IconSparkles, IconCopy, IconShare, IconTrash, IconAlertTriangle, IconEdit,
+  IconSparkles, IconCopy, IconShare, IconTrash, IconAlertTriangle, IconEdit, IconSettings,
 } from "./Icons";
 
 // ── AI conversation-history sidebar — a second nav column, populated by the
@@ -124,18 +124,32 @@ function PlanSwitcher({ user }) {
   const [renameValue, setRenameValue] = useState("");
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  // A single gear icon per plan row opens this small floating menu with the
+  // 4 actions (rename/duplicate/share/delete), instead of 4 separate icon
+  // buttons cluttering every row — only one plan's menu is open at a time.
+  const [actionMenu, setActionMenu] = useState(null); // { plan, top, left }
   const triggerRef = useRef(null);
   const dropdownRef = useRef(null);
+  const actionMenuRef = useRef(null);
 
   useEffect(() => {
     function handler(e) {
       if (triggerRef.current?.contains(e.target)) return;
       if (dropdownRef.current?.contains(e.target)) return;
+      if (actionMenuRef.current?.contains(e.target)) return;
       setOpen(false);
+      setActionMenu(null);
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  function toggleActionMenu(e, plan) {
+    e.stopPropagation();
+    if (actionMenu?.plan.id === plan.id) { setActionMenu(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActionMenu({ plan, top: rect.bottom + 4, left: rect.right - 152 });
+  }
 
   function openMenu() {
     const rect = triggerRef.current.getBoundingClientRect();
@@ -267,46 +281,20 @@ function PlanSwitcher({ user }) {
                   </div>
                   {renamingId !== plan.id && (
                     <button
-                      onClick={e => { e.stopPropagation(); startRename(plan); }}
+                      onClick={e => toggleActionMenu(e, plan)}
                       disabled={busy}
-                      title="Renomear plano"
-                      style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: busy ? "default" : "pointer", flexShrink: 0 }}
+                      title="Opções do plano"
+                      style={{
+                        padding: "0.375rem", borderRadius: "0.5rem", flexShrink: 0, border: "none", cursor: busy ? "default" : "pointer",
+                        color: actionMenu?.plan.id === plan.id ? "var(--text-base)" : "var(--text-muted)",
+                        background: actionMenu?.plan.id === plan.id ? "var(--bg-muted)" : "transparent",
+                      }}
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "var(--bg-muted)"; e.currentTarget.style.color = "var(--text-base)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
+                      onMouseLeave={e => { if (actionMenu?.plan.id !== plan.id) { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; } }}
                     >
-                      <IconEdit className="w-3.5 h-3.5" />
+                      <IconSettings className="w-3.5 h-3.5" />
                     </button>
                   )}
-                  <button
-                    onClick={() => duplicate(plan)}
-                    disabled={busy}
-                    title="Duplicar plano"
-                    style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: busy ? "default" : "pointer", flexShrink: 0 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "var(--bg-muted)"; e.currentTarget.style.color = "var(--text-base)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
-                  >
-                    <IconCopy className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setSharingPlan(plan)}
-                    disabled={busy}
-                    title="Compartilhar plano"
-                    style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: busy ? "default" : "pointer", flexShrink: 0 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "var(--bg-muted)"; e.currentTarget.style.color = "var(--text-base)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
-                  >
-                    <IconShare className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setDeletingPlan(plan)}
-                    disabled={busy}
-                    title="Excluir plano"
-                    style={{ padding: "0.375rem", borderRadius: "0.5rem", color: "var(--text-muted)", background: "transparent", border: "none", cursor: busy ? "default" : "pointer", flexShrink: 0 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "rgba(225,29,72,0.1)"; e.currentTarget.style.color = "#e11d48"; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
-                  >
-                    <IconTrash className="w-3.5 h-3.5" />
-                  </button>
                 </div>
               ))
             )}
@@ -355,6 +343,42 @@ function PlanSwitcher({ user }) {
               <IconPlus className="w-3.5 h-3.5" />
             </button>
           </form>
+        </div>,
+        document.body
+      )}
+
+      {actionMenu && createPortal(
+        <div
+          ref={actionMenuRef}
+          style={{
+            position: "fixed", top: actionMenu.top, left: actionMenu.left, zIndex: 110,
+            width: "9.5rem", backgroundColor: "var(--bg-card)", border: "1px solid var(--border)",
+            borderRadius: "0.625rem", boxShadow: "0 10px 25px -5px rgb(0 0 0/.15)", overflow: "hidden", padding: "0.25rem",
+          }}
+        >
+          {[
+            { label: "Renomear", Icon: IconEdit, onClick: () => startRename(actionMenu.plan) },
+            { label: "Duplicar", Icon: IconCopy, onClick: () => duplicate(actionMenu.plan) },
+            { label: "Compartilhar", Icon: IconShare, onClick: () => setSharingPlan(actionMenu.plan) },
+            { label: "Excluir", Icon: IconTrash, onClick: () => setDeletingPlan(actionMenu.plan), danger: true },
+          ].map(({ label, Icon, onClick, danger }) => (
+            <button
+              key={label}
+              onClick={() => { onClick(); setActionMenu(null); }}
+              disabled={busy}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: "0.5rem",
+                padding: "0.5rem 0.625rem", borderRadius: "0.5rem", fontSize: "0.8125rem",
+                border: "none", background: "transparent", cursor: busy ? "default" : "pointer",
+                color: danger ? "#e11d48" : "var(--text-base)", textAlign: "left",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = danger ? "rgba(225,29,72,0.1)" : "var(--bg-muted)"; }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; }}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
         </div>,
         document.body
       )}
