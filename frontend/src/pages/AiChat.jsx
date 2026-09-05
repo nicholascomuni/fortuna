@@ -1,18 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
+import { relativeLabel } from "../utils/format";
 import { useConfirm } from "../components/ConfirmDialog";
+import { useAiSidebar } from "../components/Layout";
 import ChatThread from "../components/ChatThread";
 import { IconSparkles, IconPlus, IconTrash, IconMenu, IconX } from "../components/Icons";
-
-function relativeLabel(iso) {
-  const d = new Date(iso);
-  const now = new Date();
-  const days = Math.floor((now.setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
-  if (days <= 0) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  if (days === 1) return "Ontem";
-  if (days < 7) return `${days} dias atrás`;
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-}
 
 function ConversationRow({ conversation, active, onSelect, onDelete }) {
   return (
@@ -55,6 +47,7 @@ export default function AiChat() {
   const [activeId, setActiveId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { confirm, confirmEl } = useConfirm();
+  const setAiSidebar = useAiSidebar();
 
   const loadConversations = useCallback(async (selectId) => {
     const rows = await api.getAiConversations();
@@ -114,23 +107,24 @@ export default function AiChat() {
 
   const activeConversation = (conversations ?? []).find(c => c.id === activeId) ?? null;
 
+  // Desktop: the conversation list renders glued to the app's nav sidebar
+  // (see Layout.jsx) instead of as a column here — push this page's state up
+  // to it, and clear it again on unmount so it doesn't linger on other pages.
+  useEffect(() => {
+    setAiSidebar({
+      conversations,
+      activeId,
+      onSelect: id => setActiveId(id),
+      onNew: handleNewConversation,
+      onDelete: handleDeleteConversation,
+    });
+    return () => setAiSidebar(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, activeId]);
+
   return (
     <div style={{ height: "calc(100vh - 8.5rem)", display: "flex", gap: "1rem" }}>
       {confirmEl}
-
-      {/* Sidebar — desktop: static column; mobile: overlay drawer */}
-      <div
-        className="hidden md:flex"
-        style={{ width: "16rem", flexShrink: 0, flexDirection: "column" }}
-      >
-        <SidebarContent
-          conversations={conversations}
-          activeId={activeId}
-          onSelect={id => setActiveId(id)}
-          onNew={handleNewConversation}
-          onDelete={handleDeleteConversation}
-        />
-      </div>
 
       {sidebarOpen && (
         <div

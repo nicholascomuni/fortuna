@@ -24,7 +24,7 @@ const ACTIVE_COLORS = {
 function SegmentedGroup({ options, value, onChange, activeColor = "blue" }) {
   const ac = ACTIVE_COLORS[activeColor];
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.25rem" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", marginTop: "0.2rem" }}>
       {options.map(({ v, label, icon }) => {
         const isActive = value === v;
         return (
@@ -37,10 +37,10 @@ function SegmentedGroup({ options, value, onChange, activeColor = "blue" }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: "0.375rem",
-              padding: "0.5rem 0.75rem",
-              borderRadius: "0.75rem",
-              fontSize: "0.875rem",
+              gap: "0.3rem",
+              padding: "0.375rem 0.625rem",
+              borderRadius: "0.625rem",
+              fontSize: "0.8125rem",
               fontWeight: isActive ? 600 : 400,
               cursor: "pointer",
               transition: "all 0.15s",
@@ -74,7 +74,6 @@ const KIND_OPTIONS = [
 
 const PAYMENT_OPTIONS = [
   { v: "a_vista",         label: "À vista",           icon: IcoBanknote },
-  { v: "debito",          label: "Débito",            icon: IcoCard     },
   { v: "cartao_credito",  label: "Cartão de crédito", icon: IcoCard     },
 ];
 
@@ -198,7 +197,7 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
   const isEdit = !!initial?.id;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-3">
       {errors.length > 0 && (
         <div style={{ backgroundColor: "rgba(225,29,72,0.1)", border: "1px solid rgba(225,29,72,0.3)", color: "#e11d48", borderRadius: "0.75rem", padding: "0.75rem", fontSize: "0.875rem" }}>
           {errors.map((e, i) => <p key={i}>{e}</p>)}
@@ -214,7 +213,7 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
       </div>
 
       {/* Amount + Kind — no cartão de crédito é sempre despesa, sem toggle */}
-      <div className={isCard ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 min-[420px]:grid-cols-2 gap-4"}>
+      <div className={isCard ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 min-[420px]:grid-cols-2 gap-3"}>
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
             <label className="label" style={{ margin: 0 }}>Valor (R$) *</label>
@@ -240,8 +239,8 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
             placeholder="0,00" required className="input" />
           {/* Interest panel */}
           {!isCard && showInterest && (
-            <div style={{ marginTop: "0.625rem", padding: "0.75rem", borderRadius: "0.75rem", border: "1px solid rgba(16,185,129,0.2)", backgroundColor: "rgba(16,185,129,0.04)" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.625rem" }}>
+            <div style={{ marginTop: "0.5rem", padding: "0.625rem", borderRadius: "0.625rem", border: "1px solid rgba(16,185,129,0.2)", backgroundColor: "rgba(16,185,129,0.04)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem" }}>
                 <div>
                   <label style={{ color: "var(--text-secondary)", fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>Taxa (%)</label>
                   <div style={{ position: "relative" }}>
@@ -301,7 +300,7 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
       </div>
 
       {/* Date + Category */}
-      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
         <div>
           <label className="label">Data *</label>
           <input type="date" value={form.date}
@@ -312,6 +311,23 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
           <CategoryInput value={form.category} onChange={v => set("category", v)} extraCategories={categories} />
         </div>
       </div>
+
+      {/* Payment method — apenas para despesas. Vem antes de conta/cartão de
+          propósito: essa escolha decide qual dos dois campos abaixo aparece,
+          então colocá-la depois faria o formulário reordenar por baixo do
+          cursor do usuário bem na hora em que ele tenta clicar no seletor
+          seguinte. */}
+      {form.kind === "despesa" && (
+        <div>
+          <label className="label">Forma de pagamento</label>
+          <SegmentedGroup
+            options={PAYMENT_OPTIONS}
+            value={form.payment_method}
+            onChange={v => set("payment_method", v)}
+            activeColor="indigo"
+          />
+        </div>
+      )}
 
       {/* Account — de onde sai / pra onde vai o dinheiro (não se aplica a cartão, que já usa a conta de pagamento do cartão, nem a cenários do simulador, que são hipotéticos) */}
       {!isCard && requireAccount && (
@@ -326,22 +342,9 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
         </div>
       )}
 
-      {/* Payment method — apenas para despesas */}
-      {form.kind === "despesa" && (
-        <div>
-          <label className="label">Forma de pagamento</label>
-          <SegmentedGroup
-            options={PAYMENT_OPTIONS}
-            value={form.payment_method}
-            onChange={v => set("payment_method", v)}
-            activeColor="indigo"
-          />
-        </div>
-      )}
-
       {/* Card + installments — só quando forma de pagamento é cartão */}
       {isCard && (
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
           <div>
             <label className="label">Cartão *</label>
             <select value={form.card_id} onChange={e => set("card_id", e.target.value)} required className="input">
@@ -379,14 +382,28 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
 
       {/* Recurrence options */}
       {form.type === "recorrente" && (
-        <div style={{ border: "1px solid rgba(37,99,235,0.2)", backgroundColor: "rgba(37,99,235,0.04)", borderRadius: "0.75rem", padding: "1rem" }} className="space-y-4">
-          <div>
-            <label className="label">Frequência *</label>
-            <select value={form.frequency} onChange={e => set("frequency", e.target.value)} className="input">
-              <option value="semanal">Semanal</option>
-              <option value="mensal">Mensal</option>
-              <option value="anual">Anual</option>
-            </select>
+        <div style={{ border: "1px solid rgba(37,99,235,0.2)", backgroundColor: "rgba(37,99,235,0.04)", borderRadius: "0.625rem", padding: "0.75rem" }} className="space-y-3">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Frequência *</label>
+              <select value={form.frequency} onChange={e => set("frequency", e.target.value)} className="input">
+                <option value="semanal">Semanal</option>
+                <option value="mensal">Mensal</option>
+                <option value="anual">Anual</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ color: "var(--text-secondary)", fontSize: "0.875rem", fontWeight: 500, display: "block", marginBottom: "0.25rem" }}>
+                {form.recurrence_end_type === "por_ocorrencias" ? "Número de vezes" : "Data de término"}
+              </label>
+              {form.recurrence_end_type === "por_ocorrencias" ? (
+                <input type="number" min="1" step="1" value={form.recurrence_count}
+                  onChange={e => set("recurrence_count", e.target.value)} className="input" />
+              ) : (
+                <input type="date" value={form.recurrence_end_date}
+                  onChange={e => set("recurrence_end_date", e.target.value)} className="input" />
+              )}
+            </div>
           </div>
           <div>
             <label className="label">Fim da recorrência *</label>
@@ -396,27 +413,12 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
               onChange={v => set("recurrence_end_type", v)}
               activeColor="blue"
             />
-            <div style={{ marginTop: "0.75rem" }}>
-              {form.recurrence_end_type === "por_ocorrencias" ? (
-                <div>
-                  <label style={{ color: "var(--text-secondary)", fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>Número de vezes</label>
-                  <input type="number" min="1" step="1" value={form.recurrence_count}
-                    onChange={e => set("recurrence_count", e.target.value)} className="input w-32" />
-                </div>
-              ) : (
-                <div>
-                  <label style={{ color: "var(--text-secondary)", fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>Data de término</label>
-                  <input type="date" value={form.recurrence_end_date}
-                    onChange={e => set("recurrence_end_date", e.target.value)} className="input w-48" />
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
 
       {/* Actions */}
-      <div style={{ display: "flex", gap: "0.75rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)", marginTop: "0.25rem" }}>
+      <div style={{ display: "flex", gap: "0.75rem", paddingTop: "0.375rem", borderTop: "1px solid var(--border)", marginTop: "0.125rem" }}>
         <button
           type="submit"
           disabled={loading}
@@ -426,9 +428,9 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
             alignItems: "center",
             justifyContent: "center",
             gap: "0.5rem",
-            padding: "0.625rem 1.5rem",
+            padding: "0.5rem 1.5rem",
             borderRadius: "0.75rem",
-            fontSize: "0.9375rem",
+            fontSize: "0.875rem",
             fontWeight: 600,
             cursor: loading ? "not-allowed" : "pointer",
             opacity: loading ? 0.6 : 1,

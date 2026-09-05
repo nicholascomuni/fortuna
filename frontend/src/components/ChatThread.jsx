@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { api } from "../api/client";
 import { formatBRL, formatDate } from "../utils/format";
-import { IconSparkles, IconSend, IconCheck, IconX, IconTrendingUp, IconTrendingDown, IconCreditCard, IconBank, IconChevronDown } from "./Icons";
+import { IconSparkles, IconSend, IconCheck, IconX, IconTrendingUp, IconTrendingDown, IconCreditCard, IconBank, IconChevronDown, IconWallet } from "./Icons";
 
 let _tempId = -1;
 function tempId() { return _tempId--; }
@@ -90,6 +90,18 @@ const RESOURCE_META = {
     bg: () => "rgba(14,165,233,0.12)",
     title: r => r.name,
     subtitle: r => `Conta bancária · saldo inicial ${formatBRL(r.initial_balance)}`,
+  },
+  // Clicking jumps to the dashboard rather than switching into the new
+  // plan — the agent never auto-activates a plan it creates/renames (that
+  // would yank the active plan out from under its own conversation), so
+  // there's no "current" view of it to deep-link into yet.
+  plan: {
+    path: "/",
+    icon: () => IconWallet,
+    color: () => "#8b5cf6",
+    bg: () => "rgba(139,92,246,0.12)",
+    title: r => r.name,
+    subtitle: () => "Plano de contas · troque pelo menu no topo para usar",
   },
 };
 
@@ -317,17 +329,23 @@ export default function ChatThread({ conversationId, onConversationChanged, comp
           ))
         )}
         {sending && (
-          <Bubble role="assistant" compact={compact}>
-            {streamingText ? (
-              <>{streamingText}<span className="animate-pulse">▍</span></>
-            ) : (
+          streamingText ? (
+            // Fed straight through Bubble's own markdown renderer (not a
+            // plain string) so formatting appears progressively as chunks
+            // arrive, instead of staying as raw text until the message ends.
+            // The trailing cursor char is part of the string itself — Bubble
+            // only markdown-renders string children, so an actual sibling
+            // element here would land on its own block instead of inline.
+            <Bubble role="assistant" compact={compact}>{streamingText + " ▍"}</Bubble>
+          ) : (
+            <Bubble role="assistant" compact={compact}>
               <span style={{ display: "inline-flex", gap: "0.25rem" }}>
                 <span className="animate-pulse">●</span>
                 <span className="animate-pulse" style={{ animationDelay: "0.15s" }}>●</span>
                 <span className="animate-pulse" style={{ animationDelay: "0.3s" }}>●</span>
               </span>
-            )}
-          </Bubble>
+            </Bubble>
+          )
         )}
       </div>
 

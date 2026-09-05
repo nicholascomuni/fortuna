@@ -1,29 +1,22 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import {
-  ComposedChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 import { formatBRL, formatDate } from "../utils/format";
 
-// Keeps each surviving point's original index (idx) intact — that index
-// doubles as its numeric x-position on the chart, so a downsampled series
-// still lines up correctly against the pan/zoom `view` state, which is
-// always expressed in original-index units.
+// Keeps each row's original index (idx) intact — see BalanceChart.jsx's
+// downsample for why: it's what the numeric x-axis plots against, so a
+// downsampled series still lines up against the pan/zoom `view` state.
 function downsample(data, maxPoints = 2000) {
   if (data.length <= maxPoints) return data;
   const step = Math.ceil(data.length / maxPoints);
   return data.filter((_, i) => i % step === 0 || i === data.length - 1);
 }
 
-// Enriches the balance tooltip with whichever lançamentos landed on the
-// hovered date — looked up directly from the transactions list rather than
-// rendered as chart markers, so hovering always shows the detail without
-// needing a separate toggle or cluttering the line with dots.
-function CustomTooltip({ active, payload, transactions }) {
+function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
-  const balance = payload.find(p => p.dataKey === "balance");
   const date = payload[0]?.payload?.date;
-  const dayTxs = date ? transactions.filter(t => t.date === date) : [];
   return (
     <div style={{
       backgroundColor: "var(--bg-card)",
@@ -33,23 +26,13 @@ function CustomTooltip({ active, payload, transactions }) {
       fontSize: "0.875rem",
       boxShadow: "0 10px 15px -3px rgb(0 0 0 / .1)",
       minWidth: "10rem",
-      maxWidth: "16rem",
     }}>
       <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginBottom: "0.375rem" }}>{formatDate(date)}</p>
-      {balance && (
-        <p style={{ fontWeight: 700, fontSize: "1rem", color: balance.value < 0 ? "#f43f5e" : "#2563eb" }}>
-          {formatBRL(balance.value)}
+      {payload.map(p => (
+        <p key={p.dataKey} style={{ fontWeight: 700, fontSize: "0.875rem", color: p.color }}>
+          {p.name}: {formatBRL(p.value)}
         </p>
-      )}
-      {dayTxs.length > 0 && (
-        <div style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-          {dayTxs.map((t, i) => (
-            <p key={i} style={{ fontSize: "0.75rem", fontWeight: 600, color: t.kind === "receita" ? "#10b981" : "#f43f5e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {t.kind === "receita" ? "+" : "−"}{formatBRL(t.amount)} · {t.description}
-            </p>
-          ))}
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -58,12 +41,9 @@ function isDark() {
   return document.documentElement.getAttribute("data-theme") === "dark";
 }
 
-// Deepest zoom level — a week of daily points is still meaningful, going
-// narrower just shows 1-2 dots with nothing to read.
 const MIN_VIEW_POINTS = 7;
 const ZOOM_STEP = 0.72;
 
-// Small round icon button for the zoom/reset controls overlaid on the chart.
 function ChartButton({ onClick, title, children }) {
   return (
     <button
@@ -83,41 +63,43 @@ function ChartButton({ onClick, title, children }) {
   );
 }
 
-export default function BalanceChart({ data, transactions = [], loading, fill = false }) {
+// Overlays up to a few plans' balance series on one chart — same drag-to-pan
+// / scroll-to-zoom interaction as BalanceChart (dashboard), but as separate
+// Line series (not a filled Area, since overlapping fills would obscure
+// each other) so multiple plans stay readable at once.
+export default function PlanComparisonChart({ series = [], loading }) {
   const dark = isDark();
-  // A callback ref (state, not a plain useRef) — the component returns an
-  // early loading/empty skeleton on its first render(s), before the real
-  // chart div (with the ref) ever mounts. A plain useRef + a [] wheel-effect
-  // would capture containerRef.current as null on that first pass and never
-  // run again once the real element shows up. Storing the node in state
-  // makes the effect below re-run exactly when the node actually appears.
+  // State, not a plain useRef — see BalanceChart.jsx for why: this component
+  // returns an early loading/empty skeleton before the real chart div (with
+  // the ref) ever mounts, so a [] wheel-effect keyed off a plain ref would
+  // capture null and never run again once the real element appears.
   const [containerEl, setContainerEl] = useState(null);
-  const dragRef = useRef(null); // { startX, startViewStart } while a drag is in progress
+  const dragRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const sbTrackRef = useRef(null);
   const sbDragRef = useRef(null);
 
-  const total = data?.length ?? 0;
+  const total = series[0]?.data?.length ?? 0;
   const [view, setView] = useState({ start: 0, length: total });
 
-  // Computed once per `data` change — NOT re-sliced on every pan/zoom frame.
-  // Each point keeps its original array index as `idx`, which is what the
-  // chart's x-axis actually plots against (see the numeric XAxis below);
-  // panning/zooming then only moves the axis' visible domain over this
-  // fixed series, instead of swapping in a different array each time, so
-  // the chart reads as one continuous surface being revealed rather than
-  // being redrawn from scratch on every frame.
-  const plotData = useMemo(
-    () => downsample((data ?? []).map((d, i) => ({ ...d, idx: i }))),
-    [data]
-  );
-
-  // The visible window is local UI state layered on top of whatever range
-  // was fetched — reset it whenever the underlying series changes (new
-  // date filter, reload) so a stale window can't point past its end.
   useEffect(() => {
-    setView({ start: 0, length: data?.length ?? 0 });
-  }, [data]);
+    setView({ start: 0, length: total });
+  }, [total]);
+
+  // Computed once per `series` change — NOT re-merged/re-sliced on every
+  // pan/zoom frame (see BalanceChart.jsx's plotData for the full rationale).
+  // Each row keeps its original index as `idx`, which the numeric x-axis
+  // plots against; pan/zoom then just moves the visible domain over this
+  // fixed series instead of rebuilding a windowed array every frame.
+  const plotData = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < total; i++) {
+      const row = { idx: i, date: series[0]?.data[i]?.date };
+      for (const s of series) row[`s_${s.id}`] = s.data[i]?.balance;
+      rows.push(row);
+    }
+    return downsample(rows);
+  }, [series, total]);
 
   function clampView(start, length) {
     const len = Math.max(Math.min(MIN_VIEW_POINTS, total), Math.min(length, total));
@@ -142,14 +124,9 @@ export default function BalanceChart({ data, transactions = [], loading, fill = 
     zoomBy(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, ratio);
   }
 
-  // React registers its synthetic wheel listener as passive at the root, so
-  // e.preventDefault() inside a plain onWheel prop silently no-ops and the
-  // page scrolls underneath the chart while it also zooms. Attaching a real
-  // native listener with passive:false is the only way to actually block
-  // the page scroll while the cursor is over the chart. handleWheelRef keeps
-  // this from closing over a stale `total`/`view` across renders; depending
-  // on containerEl (not []) is what makes this actually run once the real
-  // element mounts (see the comment on containerEl above).
+  // See BalanceChart.jsx for why this needs a real native, non-passive
+  // listener rather than a plain onWheel prop, and why it depends on
+  // containerEl rather than running once with [].
   const handleWheelRef = useRef(handleWheel);
   handleWheelRef.current = handleWheel;
   useEffect(() => {
@@ -178,9 +155,6 @@ export default function BalanceChart({ data, transactions = [], loading, fill = 
     setDragging(false);
   }
 
-  // Mini horizontal scrollbar under the chart — thumb width/position mirror
-  // the zoomed window, and it's draggable on its own (scaled to the track's
-  // width, not the chart's, since the thumb represents the WHOLE range).
   function handleSbDragStart(clientX) {
     sbDragRef.current = { startX: clientX, startView: view };
     setDragging(true);
@@ -198,41 +172,40 @@ export default function BalanceChart({ data, transactions = [], loading, fill = 
   }
 
   const isZoomed = view.length < total;
-  const boxHeight = fill ? "100%" : "16rem";
 
   if (loading) return (
-    <div style={{ height: boxHeight, backgroundColor: "var(--bg-muted)", borderRadius: "0.75rem" }} className="animate-pulse" />
+    <div style={{ height: 320, backgroundColor: "var(--bg-muted)", borderRadius: "0.75rem" }} className="animate-pulse" />
   );
 
-  if (!data?.length) return (
-    <div style={{ height: boxHeight, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.875rem" }}>
-      Nenhum dado para exibir.
+  if (!series.length) return (
+    <div style={{ height: 320, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.875rem" }}>
+      Selecione ao menos um plano de contas para ver o gráfico.
     </div>
   );
 
-  // The chart now always renders the full fixed series (see plotData above)
-  // and just moves the x-axis' visible domain over it — so unlike before,
-  // the y-axis no longer auto-fits to "whatever's currently in the data
-  // prop" (that's the whole series now, always). Computing y-domain and
-  // hasNeg from just the visible slice keeps the old zoomed-in behavior:
-  // the y-axis still rescales to the local range as you pan/zoom.
+  // Y-axis auto-fits to the visible window (not the whole series) across
+  // every plotted line, same rationale as BalanceChart.jsx.
   const viewStartIdx = Math.max(0, Math.round(view.start));
   const viewEndIdx = Math.min(total, Math.round(view.start + view.length));
-  const visibleBalances = data.slice(viewStartIdx, viewEndIdx).map(d => d.balance);
-  const hasNeg = visibleBalances.some(b => b < 0);
-  const yMin = visibleBalances.length ? Math.min(...visibleBalances) : 0;
-  const yMax = visibleBalances.length ? Math.max(...visibleBalances) : 0;
+  const visibleValues = [];
+  for (let i = viewStartIdx; i < viewEndIdx; i++) {
+    for (const s of series) {
+      const v = s.data[i]?.balance;
+      if (v != null) visibleValues.push(v);
+    }
+  }
+  const yMin = visibleValues.length ? Math.min(...visibleValues) : 0;
+  const yMax = visibleValues.length ? Math.max(...visibleValues) : 0;
   const yPad = (yMax - yMin) * 0.1 || Math.abs(yMax) * 0.1 || 10;
 
-  const gridColor  = dark ? "#1f2937" : "#f3f4f6";
-  const axisColor  = dark ? "#6b7280" : "#9ca3af";
-  const strokePos  = dark ? "#60a5fa" : "#3b82f6";
+  const gridColor = dark ? "#1f2937" : "#f3f4f6";
+  const axisColor = dark ? "#6b7280" : "#9ca3af";
 
   const sbThumbLeftPct  = total > 0 ? (view.start / total) * 100 : 0;
   const sbThumbWidthPct = total > 0 ? Math.max((view.length / total) * 100, 4) : 100;
 
   return (
-    <div style={{ height: fill ? "100%" : "auto", display: "flex", flexDirection: "column" }}>
+    <div style={{ display: "flex", flexDirection: "column" }}>
       <div
         ref={setContainerEl}
         className={`${isZoomed ? "chart-drag-area" : ""}${dragging ? " dragging" : ""}`}
@@ -245,14 +218,7 @@ export default function BalanceChart({ data, transactions = [], loading, fill = 
         onTouchEnd={handleDragEnd}
         onDoubleClick={() => setView({ start: 0, length: total })}
         title={isZoomed ? "Arraste para navegar · role para dar zoom" : "Role para dar zoom"}
-        style={{
-          position: "relative",
-          flex: fill ? 1 : "0 0 auto",
-          minHeight: 0,
-          height: fill ? "auto" : 280,
-          touchAction: "pan-y",
-          userSelect: "none",
-        }}
+        style={{ position: "relative", height: 320, touchAction: "pan-y", userSelect: "none" }}
       >
         <div style={{ position: "absolute", top: "0.25rem", right: "0.25rem", zIndex: 5, display: "flex", gap: "0.25rem" }}>
           {isZoomed && (
@@ -265,20 +231,14 @@ export default function BalanceChart({ data, transactions = [], loading, fill = 
         </div>
 
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={plotData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
-            <defs>
-              <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor={strokePos} stopOpacity={dark ? 0.25 : 0.18} />
-                <stop offset="100%" stopColor={strokePos} stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <LineChart data={plotData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
             <XAxis
               dataKey="idx"
               type="number"
               domain={[view.start, view.start + view.length]}
               allowDataOverflow
-              tickFormatter={idx => formatDate(data[Math.round(idx)]?.date)}
+              tickFormatter={idx => formatDate(series[0]?.data[Math.round(idx)]?.date)}
               tick={{ fontSize: 11, fill: axisColor }}
               tickLine={false} axisLine={false}
             />
@@ -290,21 +250,23 @@ export default function BalanceChart({ data, transactions = [], loading, fill = 
               tickLine={false} axisLine={false}
               width={96}
             />
-            <Tooltip content={<CustomTooltip transactions={transactions} />} cursor={{ stroke: axisColor, strokeWidth: 1, strokeDasharray: "4 4" }} />
-            {hasNeg && <ReferenceLine y={0} stroke="#f43f5e" strokeDasharray="5 3" strokeWidth={1.5} />}
-
-            {/* Saldo projetado */}
-            <Area
-              type="monotone"
-              dataKey="balance"
-              name="Saldo"
-              stroke={strokePos}
-              strokeWidth={2.5}
-              fill="url(#balGrad)"
-              dot={false}
-              activeDot={{ r: 4, fill: strokePos, strokeWidth: 0 }}
-            />
-          </ComposedChart>
+            <Tooltip content={<CustomTooltip />} cursor={{ stroke: axisColor, strokeWidth: 1, strokeDasharray: "4 4" }} />
+            <ReferenceLine y={0} stroke={axisColor} strokeDasharray="5 3" strokeWidth={1} />
+            <Legend wrapperStyle={{ fontSize: "0.75rem" }} iconType="line" />
+            {series.map(s => (
+              <Line
+                key={s.id}
+                type="monotone"
+                dataKey={`s_${s.id}`}
+                name={s.name}
+                stroke={s.color}
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 4, strokeWidth: 0 }}
+                connectNulls
+              />
+            ))}
+          </LineChart>
         </ResponsiveContainer>
       </div>
 

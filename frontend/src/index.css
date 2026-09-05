@@ -159,6 +159,18 @@ html, body {
   color: #fb7185;
 }
 
+/* ── Draggable balance chart — recharts sets its own cursor on internal
+   elements (.recharts-wrapper/.recharts-surface), which otherwise wins over
+   a plain inline style on the outer container and hides the grab affordance
+   entirely. Targeting those descendants directly makes the hand cursor
+   actually show up while hovering/dragging the chart. ── */
+.chart-drag-area, .chart-drag-area .recharts-wrapper, .chart-drag-area .recharts-surface {
+  cursor: grab;
+}
+.chart-drag-area.dragging, .chart-drag-area.dragging .recharts-wrapper, .chart-drag-area.dragging .recharts-surface {
+  cursor: grabbing;
+}
+
 /* ── Markdown-rendered chat messages ── */
 .md-content > *:first-child { margin-top: 0; }
 .md-content > *:last-child { margin-bottom: 0; }

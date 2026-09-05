@@ -5,6 +5,7 @@ import SummaryCard from "../components/SummaryCard";
 import BalanceChart from "../components/BalanceChart";
 import TransactionTable from "../components/TransactionTable";
 import TransactionForm from "../components/TransactionForm";
+import EditTransactionForm from "../components/EditTransactionForm";
 import ParcelarFaturaModal from "../components/ParcelarFaturaModal";
 import { useConfirm } from "../components/ConfirmDialog";
 import {
@@ -42,8 +43,10 @@ export default function Dashboard() {
 
   const [startDate, setStartDate]   = useState(today());
   const [endDate, setEndDate]       = useState(addMonths(today(), 12));
-  const [filterKind, setFilterKind] = useState("");
-  const [filterCat, setFilterCat]   = useState("");
+  const [filterKind, setFilterKind]       = useState("");
+  const [filterCat, setFilterCat]         = useState("");
+  const [filterAccount, setFilterAccount] = useState("");
+  const [search, setSearch]               = useState("");
 
   const { confirm, confirmEl }            = useConfirm();
   const [editing, setEditing]             = useState(null);
@@ -93,6 +96,8 @@ export default function Dashboard() {
   const filteredRows = (projection?.rows ?? []).filter(r => {
     if (filterKind && r.kind !== filterKind) return false;
     if (filterCat  && r.category !== filterCat) return false;
+    if (filterAccount && String(r.account_id ?? "") !== filterAccount) return false;
+    if (search && !r.description?.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
@@ -184,7 +189,7 @@ export default function Dashboard() {
   }
 
   const s = projection?.summary;
-  const hasFilters = filterKind || filterCat;
+  const hasFilters = filterKind || filterCat || filterAccount || search;
 
   return (
     <div className="space-y-5">
@@ -193,8 +198,13 @@ export default function Dashboard() {
 
       {editing && (
         <Modal title={editing.source === "credit_purchase" ? "Editar compra no cartão" : "Editar movimentação"} onClose={() => setEditing(null)}>
-          <TransactionForm initial={editing} cards={cards} accounts={accounts} onSubmit={handleEditSave}
-            onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
+          {editing.source === "credit_purchase" ? (
+            <TransactionForm initial={editing} cards={cards} accounts={accounts} onSubmit={handleEditSave}
+              onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
+          ) : (
+            <EditTransactionForm initial={editing} onSubmit={handleEditSave}
+              onCancel={() => setEditing(null)} loading={saveLoading} categories={categories} />
+          )}
         </Modal>
       )}
 
@@ -237,7 +247,7 @@ export default function Dashboard() {
             <IconMaximize className="w-4 h-4" />
           </button>
         </div>
-        <BalanceChart data={projection?.chart} loading={loading} />
+        <BalanceChart data={projection?.chart} transactions={filteredRows} loading={loading} />
       </div>
 
       {/* Expanded chart — fullscreen, works in mobile landscape too */}
@@ -258,7 +268,7 @@ export default function Dashboard() {
               <button onClick={() => setChartExpanded(false)} className="btn-ghost p-1.5 rounded-lg"><IconX className="w-4 h-4" /></button>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <BalanceChart data={projection?.chart} loading={loading} fill />
+              <BalanceChart data={projection?.chart} transactions={filteredRows} loading={loading} fill />
             </div>
           </div>
         </div>
@@ -292,9 +302,20 @@ export default function Dashboard() {
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          <div>
+            <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Conta</label>
+            <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)} className="input text-sm">
+              <option value="">Todas</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Buscar</label>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Descrição…" className="input text-sm" />
+          </div>
           <div className="flex gap-2 ml-auto">
             {hasFilters && (
-              <button onClick={() => { setFilterKind(""); setFilterCat(""); }}
+              <button onClick={() => { setFilterKind(""); setFilterCat(""); setFilterAccount(""); setSearch(""); }}
                 className="btn-ghost text-xs flex items-center gap-1"
                 style={{ border: "1px solid var(--border)" }}>
                 <IconX className="w-3 h-3" /> Limpar

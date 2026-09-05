@@ -30,3 +30,15 @@ export function addMonths(dateStr, n) {
   d.setMonth(d.getMonth() + n);
   return d.toISOString().split("T")[0];
 }
+
+// "Hoje 14:32" / "Ontem" / "3 dias atrás" / "05/09" — used by the AI
+// assistant's conversation list (full-page sidebar and the app nav's own).
+export function relativeLabel(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const days = Math.floor((now.setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (days === 1) return "Ontem";
+  if (days < 7) return `${days} dias atrás`;
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}

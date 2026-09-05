@@ -144,10 +144,6 @@ export const api = {
     return request(`/projection${qs ? "?" + qs : ""}`);
   },
 
-  // Simulation
-  simulate: (data) =>
-    request("/projection/simulate", { method: "POST", body: JSON.stringify(data) }),
-
   // Categories
   getCategories: () => request("/categories"),
 
@@ -193,8 +189,22 @@ export const api = {
     request("/plans", { method: "POST", body: JSON.stringify(data) }),
   updatePlan: (id, data) =>
     request(`/plans/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deletePlan: (id) =>
+    request(`/plans/${id}`, { method: "DELETE" }),
   activatePlan: (id) =>
     request(`/plans/${id}/activate`, { method: "POST" }),
+  duplicatePlan: (id, data = {}) =>
+    request(`/plans/${id}/duplicate`, { method: "POST", body: JSON.stringify(data) }),
+  getPlanProjection: (id, params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/plans/${id}/projection${qs ? "?" + qs : ""}`);
+  },
+  getPlanShares: (id) => request(`/plans/${id}/shares`),
+  sharePlan: (id, data) =>
+    request(`/plans/${id}/shares`, { method: "POST", body: JSON.stringify(data) }),
+  deletePlanShare: (id, shareId) =>
+    request(`/plans/${id}/shares/${shareId}`, { method: "DELETE" }),
+  getSharedPlans: () => request("/plans/shared"),
 
   // Accounts
   getAccounts: () => request("/accounts"),
