@@ -212,8 +212,10 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
           placeholder="Ex.: Aluguel, Salário, Netflix…" required className="input" />
       </div>
 
-      {/* Amount + Kind — no cartão de crédito é sempre despesa, sem toggle */}
-      <div className={isCard ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 min-[420px]:grid-cols-2 gap-3"}>
+      {/* Amount + Kind — Tipo stays visible even with cartão de crédito
+          selected; picking Receita there just drops back to à vista (a
+          card purchase can never be a receita), handled by setKind below. */}
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
             <label className="label" style={{ margin: 0 }}>Valor (R$) *</label>
@@ -286,17 +288,15 @@ export default function TransactionForm({ initial, onSubmit, onCancel, loading, 
             </div>
           )}
         </div>
-        {!isCard && (
-          <div>
-            <label className="label">Tipo *</label>
-            <SegmentedGroup
-              options={KIND_OPTIONS}
-              value={form.kind}
-              onChange={setKind}
-              activeColor={form.kind === "receita" ? "green" : "red"}
-            />
-          </div>
-        )}
+        <div>
+          <label className="label">Tipo *</label>
+          <SegmentedGroup
+            options={KIND_OPTIONS}
+            value={form.kind}
+            onChange={setKind}
+            activeColor={form.kind === "receita" ? "green" : "red"}
+          />
+        </div>
       </div>
 
       {/* Date + Category */}

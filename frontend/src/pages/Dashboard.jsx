@@ -10,7 +10,7 @@ import ParcelarFaturaModal from "../components/ParcelarFaturaModal";
 import { useConfirm } from "../components/ConfirmDialog";
 import {
   IconTrendingUp, IconTrendingDown, IconWallet,
-  IconAlertTriangle, IconFilter, IconX, IconMaximize,
+  IconAlertTriangle, IconFilter, IconX, IconMaximize, IconPlus, IconRepeat,
 } from "../components/Icons";
 
 function Modal({ title, onClose, children }) {
@@ -56,6 +56,12 @@ export default function Dashboard() {
   const [cards, setCards]                 = useState([]);
   const [accounts, setAccounts]           = useState([]);
   const [chartExpanded, setChartExpanded] = useState(false);
+  const [creatingKind, setCreatingKind]   = useState(null); // "receita" | "despesa" | null
+  const [createLoading, setCreateLoading] = useState(false);
+  // Tipo/Categoria/Conta stay collapsed on mobile (behind the Filtros
+  // button below) so the filter bar doesn't eat the whole screen before you
+  // even reach the table — always shown inline from `sm` up.
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -141,6 +147,28 @@ export default function Dashboard() {
     } finally { setSaveLoading(false); }
   }
 
+  // Same create flow as the global "Nova movimentação" quick-add, just
+  // pre-selecting receita/despesa and scoped to this page's own toast/reload
+  // instead of firing the window event GlobalQuickAdd's callers listen for.
+  async function handleCreateSave(payload) {
+    const isCard = payload.payment_method === "cartao_credito";
+    setCreateLoading(true);
+    try {
+      if (isCard) {
+        await api.createCreditPurchase(payload);
+        showToast("Compra no cartão adicionada!");
+      } else {
+        await api.createTransaction(payload);
+        showToast(creatingKind === "receita" ? "Receita adicionada!" : "Despesa adicionada!");
+      }
+      setCreatingKind(null);
+      load();
+    } catch (err) {
+      showToast(err.message, "error");
+      if (isCard) throw err; // lets TransactionForm show the inline error too
+    } finally { setCreateLoading(false); }
+  }
+
   async function handleDelete(rowOrId) {
     if (typeof rowOrId === "object" && rowOrId.source === "credit_invoice") {
       showToast(
@@ -216,6 +244,13 @@ export default function Dashboard() {
         />
       )}
 
+      {creatingKind && (
+        <Modal title="Nova movimentação" onClose={() => setCreatingKind(null)}>
+          <TransactionForm initial={{ kind: creatingKind }} cards={cards} accounts={accounts} onSubmit={handleCreateSave}
+            onCancel={() => setCreatingKind(null)} loading={createLoading} categories={categories} />
+        </Modal>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -285,29 +320,43 @@ export default function Dashboard() {
             <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Até</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input text-sm w-38" />
           </div>
-          <div>
-            <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 flex items-center gap-1">
-              <IconFilter />Tipo
-            </label>
-            <select value={filterKind} onChange={e => setFilterKind(e.target.value)} className="input text-sm">
-              <option value="">Todos</option>
-              <option value="receita">Receitas</option>
-              <option value="despesa">Despesas</option>
-            </select>
-          </div>
-          <div>
-            <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Categoria</label>
-            <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="input text-sm">
-              <option value="">Todas</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Conta</label>
-            <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)} className="input text-sm">
-              <option value="">Todas</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+          <button
+            type="button"
+            onClick={() => setShowMoreFilters(v => !v)}
+            className="sm:hidden btn-ghost text-xs flex items-center gap-1"
+            style={{ border: "1px solid var(--border)", padding: "0.5rem 0.75rem", position: "relative" }}
+          >
+            <IconFilter className="w-3.5 h-3.5" /> Filtros
+            {(filterKind || filterCat || filterAccount) && (
+              <span style={{ width: "0.375rem", height: "0.375rem", borderRadius: "9999px", backgroundColor: "#2563eb" }} />
+            )}
+          </button>
+
+          <div className={`${showMoreFilters ? "flex" : "hidden"} sm:flex flex-wrap gap-3 items-end`}>
+            <div>
+              <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 flex items-center gap-1">
+                <IconFilter />Tipo
+              </label>
+              <select value={filterKind} onChange={e => setFilterKind(e.target.value)} className="input text-sm">
+                <option value="">Todos</option>
+                <option value="receita">Receitas</option>
+                <option value="despesa">Despesas</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Categoria</label>
+              <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="input text-sm">
+                <option value="">Todas</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Conta</label>
+              <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)} className="input text-sm">
+                <option value="">Todas</option>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label style={{ color: "var(--text-secondary)" }} className="text-xs font-medium mb-1 block">Buscar</label>
@@ -321,8 +370,16 @@ export default function Dashboard() {
                 <IconX className="w-3 h-3" /> Limpar
               </button>
             )}
-            <button onClick={load} className="btn-ghost text-xs" style={{ border: "1px solid var(--border)" }}>
-              Atualizar
+            <button onClick={load} className="btn-ghost p-1.5 rounded-lg" style={{ border: "1px solid var(--border)" }} title="Atualizar">
+              <IconRepeat className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => setCreatingKind("receita")} className="btn-ghost text-xs flex items-center gap-1"
+              style={{ border: "1px solid rgba(5,150,105,0.35)", color: "#059669" }}>
+              <IconPlus className="w-3 h-3" /> Receita
+            </button>
+            <button onClick={() => setCreatingKind("despesa")} className="btn-ghost text-xs flex items-center gap-1"
+              style={{ border: "1px solid rgba(225,29,72,0.35)", color: "#e11d48" }}>
+              <IconPlus className="w-3 h-3" /> Despesa
             </button>
           </div>
         </div>

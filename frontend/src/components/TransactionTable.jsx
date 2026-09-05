@@ -286,7 +286,7 @@ export default function TransactionTable({ rows, loading, onEdit, onDelete, onBu
                   <td style={{ padding: "0.75rem", color: "var(--text-secondary)", whiteSpace: "nowrap", fontSize: "0.75rem" }}>
                     {formatDate(row.date)}
                   </td>
-                  <td style={{ padding: "0.75rem", color: "var(--text-base)", fontWeight: 500 }}>
+                  <td style={{ padding: "0.75rem", color: "var(--text-base)", fontWeight: 500, whiteSpace: "nowrap" }}>
                     <span>{row.description}</span>
                   </td>
                   <td style={{ padding: "0.75rem" }}>
