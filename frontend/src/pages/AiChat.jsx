@@ -46,6 +46,11 @@ export default function AiChat() {
   const [conversations, setConversations] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [models, setModels] = useState(null);
+  // Only used before the very first conversation exists (nothing to PATCH
+  // yet) — once a conversation exists, its own `model` field is the source
+  // of truth and this is ignored.
+  const [pendingModel, setPendingModel] = useState(null);
   const { confirm, confirmEl } = useConfirm();
   const setAiSidebar = useAiSidebar();
 
@@ -63,9 +68,10 @@ export default function AiChat() {
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+  useEffect(() => { api.getAiModels().then(setModels).catch(() => setModels([])); }, []);
 
   async function handleNewConversation() {
-    const c = await api.createAiConversation();
+    const c = await api.createAiConversation(pendingModel);
     setConversations(rows => [c, ...(rows ?? [])]);
     setActiveId(c.id);
     setSidebarOpen(false);
@@ -99,13 +105,33 @@ export default function AiChat() {
 
   async function ensureActiveConversation() {
     if (activeId) return activeId;
-    const c = await api.createAiConversation();
+    const c = await api.createAiConversation(pendingModel);
     setConversations(rows => [c, ...(rows ?? [])]);
     setActiveId(c.id);
     return c.id;
   }
 
   const activeConversation = (conversations ?? []).find(c => c.id === activeId) ?? null;
+
+  async function handleModelChange(modelId) {
+    if (activeConversation) {
+      const updated = await api.updateAiConversation(activeConversation.id, { model: modelId });
+      handleConversationChanged(updated);
+    } else {
+      setPendingModel(modelId);
+    }
+  }
+
+  const defaultModelId = (models ?? []).find(m => m.default)?.id ?? "";
+  const currentModelId = activeConversation?.model || pendingModel || defaultModelId;
+  const openaiModels = (models ?? []).filter(m => m.provider === "openai");
+  // Grouped by provider so a future second disabled provider gets its own
+  // labeled group instead of being lumped into a generic "outros" bucket.
+  const otherProviderGroups = Object.entries(
+    (models ?? [])
+      .filter(m => m.provider !== "openai")
+      .reduce((acc, m) => ({ ...acc, [m.provider]: [...(acc[m.provider] ?? []), m] }), {})
+  );
 
   // Desktop: the conversation list renders glued to the app's nav sidebar
   // (see Layout.jsx) instead of as a column here — push this page's state up
@@ -159,9 +185,31 @@ export default function AiChat() {
             <IconMenu className="w-4 h-4" />
           </button>
           <IconSparkles className="w-4 h-4" style={{ color: "#6366f1", flexShrink: 0 }} />
-          <p style={{ color: "var(--text-base)", fontSize: "0.875rem", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <p style={{ flex: 1, minWidth: 0, color: "var(--text-base)", fontSize: "0.875rem", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {activeConversation?.title || "Assistente"}
           </p>
+          {models !== null && (
+            <select
+              value={currentModelId}
+              onChange={e => handleModelChange(e.target.value)}
+              className="input text-sm"
+              style={{ width: "auto", flexShrink: 0 }}
+              title="Modelo de IA"
+            >
+              <optgroup label="OpenAI">
+                {openaiModels.map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </optgroup>
+              {otherProviderGroups.map(([provider, providerModels]) => (
+                <optgroup key={provider} label={provider[0].toUpperCase() + provider.slice(1)} disabled>
+                  {providerModels.map(m => (
+                    <option key={m.id} value={m.id} disabled>{m.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
         </div>
 
         {conversations === null ? (
