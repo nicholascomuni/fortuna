@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fortuna — controle financeiro pessoal</title>
+  <meta name="description" content="Organize contas, cartões e receitas em um só lugar, veja sua projeção de saldo futuro e conte com um assistente de IA para economizar mais todo mês." />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#top" class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <mask id="f-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+            <rect width="24" height="24" fill="#fff"/>
+            <rect x="8" y="5" width="3.6" height="14" rx="1" fill="#000"/>
+            <rect x="8" y="5" width="8.5" height="3.6" rx="1" fill="#000"/>
+            <rect x="8" y="10.5" width="6" height="3.6" rx="1" fill="#000"/>
+          </mask>
+          <circle cx="12" cy="12" r="11" fill="#fbbf24" mask="url(#f-cut)"/>
+        </svg>
+        <span>Fortuna</span>
+      </a>
+
+      <nav class="main-nav">
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#recursos">Recursos</a>
+        <a href="#precos">Preços</a>
+        <a href="#faq">Dúvidas</a>
+      </nav>
+
+      <div class="header-actions">
+        <a href="#" class="btn btn-ghost" data-app-link="/login">Entrar</a>
+        <a href="#precos" class="btn btn-primary">Assinar agora</a>
+      </div>
+
+      <button class="nav-toggle" id="navToggle" aria-label="Abrir menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+
+    <div class="mobile-nav" id="mobileNav">
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#recursos">Recursos</a>
+      <a href="#precos">Preços</a>
+      <a href="#faq">Dúvidas</a>
+      <a href="#" class="btn btn-ghost" data-app-link="/login">Entrar</a>
+      <a href="#precos" class="btn btn-primary">Assinar agora</a>
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ============ HERO ============ -->
+    <section class="hero">
+      <div class="container hero-inner">
+        <div class="hero-copy">
+          <span class="eyebrow">Controle financeiro pessoal</span>
+          <h1>Saiba exatamente para onde seu dinheiro vai — e economize mais todo mês</h1>
+          <p class="lead">
+            Fortuna reúne suas contas, cartões de crédito e assinaturas em uma dashboard só,
+            projeta seu saldo dos próximos meses e conta com um assistente de IA que registra
+            lançamentos por você — sempre pedindo sua confirmação antes de mudar qualquer dado.
+          </p>
+          <div class="hero-actions">
+            <a href="#precos" class="btn btn-primary btn-lg">Assinar agora</a>
+            <a href="#como-funciona" class="btn btn-ghost btn-lg">Ver como funciona</a>
+          </div>
+          <p class="hero-note">Sem taxas escondidas. Cancele quando quiser.</p>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+          <div class="mock-card mock-card--main">
+            <div class="mock-card-header">
+              <span class="mock-dot"></span>
+              <span class="mock-dot"></span>
+              <span class="mock-dot"></span>
+            </div>
+            <div class="mock-stat-row">
+              <div class="mock-stat">
+                <span class="mock-stat-label">Receitas</span>
+                <span class="mock-stat-value mock-green">R$ 8.400,00</span>
+              </div>
+              <div class="mock-stat">
+                <span class="mock-stat-label">Despesas</span>
+                <span class="mock-stat-value mock-red">R$ 5.120,33</span>
+              </div>
+            </div>
+            <div class="mock-chart">
+              <svg viewBox="0 0 300 90" preserveAspectRatio="none">
+                <polyline points="0,70 40,60 80,64 120,40 160,48 200,22 240,30 300,10" />
+              </svg>
+            </div>
+            <div class="mock-list">
+              <div class="mock-list-item">
+                <span class="mock-pill mock-pill--blue">Salário</span>
+                <span class="mock-green">+ R$ 6.000,00</span>
+              </div>
+              <div class="mock-list-item">
+                <span class="mock-pill mock-pill--purple">Cartão Nubank</span>
+                <span class="mock-red">− R$ 842,10</span>
+              </div>
+              <div class="mock-list-item">
+                <span class="mock-pill mock-pill--amber">Aluguel</span>
+                <span class="mock-red">− R$ 1.800,00</span>
+              </div>
+            </div>
+          </div>
+          <div class="mock-card mock-card--assistant">
+            <span class="mock-assistant-badge">✨ Assistente</span>
+            <p>“Vi que você lança o aluguel todo dia 5 — quer que eu deixe isso recorrente?”</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LOGOS / TRUST STRIP (social proof placeholder) ============ -->
+    <section class="trust-strip">
+      <div class="container trust-strip-inner">
+        <span>🔒 Dados protegidos e criptografados</span>
+        <span>🤖 Assistente de IA só age com sua confirmação</span>
+        <span>🇧🇷 Feito para a realidade financeira brasileira</span>
+      </div>
+    </section>
+
+    <!-- ============ COMO FUNCIONA ============ -->
+    <section id="como-funciona" class="section">
+      <div class="container">
+        <h2 class="section-title">Como funciona</h2>
+        <p class="section-subtitle">Três passos para ter clareza total sobre suas finanças.</p>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step-number">1</span>
+            <h3>Cadastre contas e cartões</h3>
+            <p>Adicione suas contas bancárias e cartões de crédito uma única vez — com limite, dia de vencimento e saldo inicial.</p>
+          </div>
+          <div class="step">
+            <span class="step-number">2</span>
+            <h3>Registre ou peça pro assistente</h3>
+            <p>Lance receitas e despesas manualmente, ou simplesmente conte sua situação para o assistente de IA e deixe ele organizar tudo — sempre com sua confirmação antes de qualquer alteração.</p>
+          </div>
+          <div class="step">
+            <span class="step-number">3</span>
+            <h3>Acompanhe e economize</h3>
+            <p>Veja sua projeção de saldo para os próximos meses, identifique onde está gastando mais e ajuste antes que o problema apareça no extrato.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RECURSOS ============ -->
+    <section id="recursos" class="section section-muted">
+      <div class="container">
+        <h2 class="section-title">Tudo que você precisa para organizar seu dinheiro</h2>
+        <p class="section-subtitle">Sem planilhas complicadas, sem apps genéricos que não entendem sua realidade.</p>
+
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">📊</div>
+            <h3>Dashboard completa</h3>
+            <p>Visão clara de receitas, despesas e saldo projetado, com filtros por tipo, categoria e conta.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">💳</div>
+            <h3>Cartões de crédito sob controle</h3>
+            <p>Compras parceladas, faturas calculadas automaticamente e a opção de financiar uma fatura com juros, se precisar.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🏦</div>
+            <h3>Múltiplas contas e planos</h3>
+            <p>Separe finanças pessoais e de um negócio, ou organize por objetivo, com planos de contas independentes.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">📈</div>
+            <h3>Projeção de saldo futuro</h3>
+            <p>Simule os próximos meses considerando recorrências, parcelas e juros — saiba hoje se vai faltar dinheiro lá na frente.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">✨</div>
+            <h3>Assistente financeiro de IA</h3>
+            <p>Descreva sua situação em português normal e o assistente organiza os lançamentos certos — sempre pedindo sua confirmação antes de aplicar qualquer mudança.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🔁</div>
+            <h3>Recorrências automáticas</h3>
+            <p>Salário, aluguel, assinaturas — cadastre uma vez e deixe o Fortuna projetar o resto sozinho.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PREÇOS ============ -->
+    <section id="precos" class="section">
+      <div class="container">
+        <h2 class="section-title">Um plano simples, sem pegadinhas</h2>
+        <p class="section-subtitle">Cancele quando quiser. Sem fidelidade, sem taxa de adesão.</p>
+
+        <div class="pricing-grid">
+          <div class="price-card">
+            <h3>Mensal</h3>
+            <p class="price-value"><span class="price-currency">R$</span>29,90<span class="price-period">/mês</span></p>
+            <p class="price-caption">Cobrado todo mês. Cancele quando quiser.</p>
+            <ul class="price-features">
+              <li>Contas, cartões e planos ilimitados</li>
+              <li>Projeção de saldo e relatórios completos</li>
+              <li>Assistente financeiro de IA</li>
+              <li>Suporte por e-mail</li>
+            </ul>
+            <a href="#" class="btn btn-ghost btn-block" data-checkout-plan="mensal" data-app-link="/cadastro?plano=mensal">Assinar mensal</a>
+          </div>
+
+          <div class="price-card price-card--highlight">
+            <span class="price-badge">Melhor custo-benefício</span>
+            <h3>Anual</h3>
+            <p class="price-value"><span class="price-currency">R$</span>19,90<span class="price-period">/mês</span></p>
+            <p class="price-caption">R$ 238,80 cobrados uma vez por ano — equivale a 4 meses grátis.</p>
+            <ul class="price-features">
+              <li>Tudo do plano mensal</li>
+              <li>Economize 33% no total do ano</li>
+              <li>Contas, cartões e planos ilimitados</li>
+              <li>Projeção de saldo e relatórios completos</li>
+              <li>Assistente financeiro de IA</li>
+              <li>Suporte por e-mail prioritário</li>
+            </ul>
+            <a href="#" class="btn btn-primary btn-block" data-checkout-plan="anual" data-app-link="/cadastro?plano=anual">Assinar anual</a>
+          </div>
+        </div>
+
+        <p class="checkout-notice" id="checkoutNotice" hidden>
+          Pagamentos ainda não foram ativados nesta página — assim que forem, você poderá assinar direto por aqui.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section id="faq" class="section section-muted">
+      <div class="container container-narrow">
+        <h2 class="section-title">Perguntas frequentes</h2>
+
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary>Preciso entender de finanças para usar o Fortuna?</summary>
+            <p>Não. A dashboard foi pensada para ser direta ao ponto, e o assistente de IA ajuda a organizar tudo em linguagem simples — você só precisa descrever sua situação.</p>
+          </details>
+          <details class="faq-item">
+            <summary>O assistente de IA mexe nos meus dados sozinho?</summary>
+            <p>Não. Toda ação que cria, edita ou apaga alguma coisa — um lançamento, uma conta, um cartão — é sempre mostrada antes para você confirmar. Nada é alterado sem sua aprovação explícita.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Meus dados financeiros são seguros?</summary>
+            <p>Sim. Suas informações ficam em um banco de dados privado, protegido, acessível apenas pela sua conta autenticada.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Posso cancelar quando quiser?</summary>
+            <p>Sim, não há fidelidade. Você pode cancelar sua assinatura a qualquer momento.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Consigo controlar mais de um cartão de crédito ou conta?</summary>
+            <p>Sim. Você pode cadastrar quantas contas e cartões precisar, e até separar tudo em planos de contas independentes.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CTA FINAL ============ -->
+    <section class="final-cta">
+      <div class="container final-cta-inner">
+        <h2>Pronto para organizar suas finanças?</h2>
+        <p>Comece hoje e tenha clareza total sobre para onde seu dinheiro vai.</p>
+        <a href="#precos" class="btn btn-primary btn-lg">Assinar agora</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a href="#top" class="brand brand--footer">
+        <svg class="brand-mark" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <mask id="f-cut-footer" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+            <rect width="24" height="24" fill="#fff"/>
+            <rect x="8" y="5" width="3.6" height="14" rx="1" fill="#000"/>
+            <rect x="8" y="5" width="8.5" height="3.6" rx="1" fill="#000"/>
+            <rect x="8" y="10.5" width="6" height="3.6" rx="1" fill="#000"/>
+          </mask>
+          <circle cx="12" cy="12" r="11" fill="#fbbf24" mask="url(#f-cut-footer)"/>
+        </svg>
+        <span>Fortuna</span>
+      </a>
+      <p class="footer-copy">© <span id="year"></span> Fortuna. Todos os direitos reservados.</p>
+      <div class="footer-links">
+        <a href="#" class="footer-legal-link" data-app-link="/termos">Termos de Uso</a>
+        <a href="#" class="footer-legal-link" data-app-link="/privacidade">Privacidade</a>
+        <a href="#" class="footer-app-link" data-app-link="/login">Acessar a plataforma →</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
