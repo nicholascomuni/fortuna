@@ -23,6 +23,11 @@ class User(db.Model):
     email_verify_token = db.Column(db.String(64), nullable=True)
     email_verify_sent_at = db.Column(db.DateTime, nullable=True)
 
+    # When the user accepted the Terms of Use / Privacy Policy at signup.
+    # Nullable so existing accounts from before this field existed aren't
+    # retroactively marked as having accepted anything they never saw.
+    terms_accepted_at = db.Column(db.DateTime, nullable=True)
+
     # TOTP-based two-factor authentication (Google Authenticator, Authy, etc.)
     totp_secret = db.Column(db.String(32), nullable=True)
     totp_enabled = db.Column(db.Boolean, nullable=False, default=False)
@@ -299,6 +304,7 @@ class AiConversation(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     plan_id = db.Column(db.Integer, db.ForeignKey("plans.id"), nullable=False)
     title = db.Column(db.String(120), nullable=True)  # set from the first user message once sent
+    model = db.Column(db.String(60), nullable=True)  # chat model id (agent/model_registry.py); None -> default model
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -311,6 +317,7 @@ class AiConversation(db.Model):
         return {
             "id": self.id,
             "title": self.title,
+            "model": self.model,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }

@@ -133,15 +133,6 @@ export function IconUser({ className = "w-5 h-5" }) {
   );
 }
 
-export function IconDollarSign({ className = "w-5 h-5" }) {
-  return (
-    <svg className={`${base} ${className}`} viewBox="0 0 24 24">
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  );
-}
-
 export function IconFilter({ className = "w-4 h-4" }) {
   return (
     <svg className={`${base} ${className}`} viewBox="0 0 24 24">

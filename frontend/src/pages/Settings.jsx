@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import {
   IconUser, IconGlobe, IconDownload, IconUpload,
-  IconSun, IconMoon, IconLock, IconCheck, IconAlertTriangle,
+  IconSun, IconMoon, IconLock, IconCheck, IconAlertTriangle, IconTrash,
 } from "../components/Icons";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ const TABS = [
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Settings() {
-  const { user, setUser } = useAuth();
+  const { user, setUser, logout } = useAuth();
   const { dark, toggle } = useTheme();
 
   const [tab, setTab] = useState("perfil");
@@ -147,7 +148,6 @@ export default function Settings() {
                 padding: "0.5rem 1rem",
                 fontSize: "0.875rem", fontWeight: active ? 600 : 400,
                 color: active ? "#2563eb" : "var(--text-secondary)",
-                borderBottom: active ? "2px solid #2563eb" : "2px solid transparent",
                 background: "transparent", border: "none",
                 borderBottomWidth: "2px",
                 borderBottomStyle: "solid",
@@ -166,7 +166,7 @@ export default function Settings() {
       {/* Tab content */}
       {tab === "perfil"      && <ProfileTab user={user} setUser={setUser} showToast={showToast} />}
       {tab === "preferencias" && <PrefsTab dark={dark} toggle={toggle} showToast={showToast} />}
-      {tab === "dados"       && <DataTab showToast={showToast} />}
+      {tab === "dados"       && <DataTab showToast={showToast} logout={logout} />}
     </div>
   );
 }
@@ -176,6 +176,7 @@ export default function Settings() {
 function ProfileTab({ user, setUser, showToast }) {
   const [name, setName]         = useState(user?.name ?? "");
   const [email, setEmail]       = useState(user?.email ?? "");
+  const [emailPw, setEmailPw]   = useState("");
   const [loading, setLoading]   = useState(false);
   const [saved, setSaved]       = useState(false);
 
@@ -185,12 +186,15 @@ function ProfileTab({ user, setUser, showToast }) {
   const [pwLoading, setPwLoading] = useState(false);
   const [pwSaved, setPwSaved]   = useState(false);
 
+  const emailChanged = email.trim().toLowerCase() !== (user?.email ?? "").toLowerCase();
+
   async function handleSaveInfo(e) {
     e.preventDefault();
     setLoading(true); setSaved(false);
     try {
-      const updated = await api.updateProfile({ name, email });
+      const updated = await api.updateProfile({ name, email, ...(emailChanged ? { current_password: emailPw } : {}) });
       setUser(updated);
+      setEmailPw("");
       setSaved(true);
       showToast("Perfil atualizado!");
       setTimeout(() => setSaved(false), 2000);
@@ -225,6 +229,12 @@ function ProfileTab({ user, setUser, showToast }) {
             <input type="email" value={email} onChange={e => setEmail(e.target.value)}
               required className="input" />
           </Field>
+          {emailChanged && (
+            <Field label="Senha atual (necessária para trocar o e-mail)">
+              <input type="password" value={emailPw} onChange={e => setEmailPw(e.target.value)}
+                required autoComplete="current-password" className="input" />
+            </Field>
+          )}
           <div className="flex justify-end">
             <SaveBtn loading={loading} saved={saved} />
           </div>
@@ -481,11 +491,29 @@ function PrefsTab({ dark, toggle, showToast }) {
 
 // ── Data tab ──────────────────────────────────────────────────────────────────
 
-function DataTab({ showToast }) {
+function DataTab({ showToast, logout }) {
+  const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [importMode, setImportMode] = useState("merge");
   const [importResult, setImportResult] = useState(null);
   const fileRef = useRef(null);
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePw, setDeletePw] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDeleteAccount(e) {
+    e.preventDefault();
+    setDeleting(true);
+    try {
+      await api.deleteMyAccount(deletePw);
+      logout();
+      navigate("/login");
+    } catch (err) {
+      showToast(err.message, "error");
+      setDeleting(false);
+    }
+  }
 
   async function handleExport() {
     try {
@@ -611,6 +639,57 @@ function DataTab({ showToast }) {
             </p>
           )}
         </div>
+      </Section>
+
+      {/* Danger zone */}
+      <Section title="Zona de perigo" icon={IconAlertTriangle}>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
+          Exclui permanentemente sua conta, todos os planos de contas, movimentações,
+          contas bancárias e cartões associados a ela. Esta ação não pode ser desfeita —
+          exporte um backup antes, se quiser guardar seus dados.
+        </p>
+
+        {!showDeleteConfirm ? (
+          <button
+            type="button"
+            onClick={() => setShowDeleteConfirm(true)}
+            className="text-sm flex items-center gap-2"
+            style={{ padding: "0.5rem 1rem", borderRadius: "0.75rem", fontWeight: 600, cursor: "pointer", border: "1px solid rgba(225,29,72,0.35)", backgroundColor: "rgba(225,29,72,0.1)", color: "#e11d48" }}
+          >
+            <IconTrash className="w-4 h-4" /> Excluir minha conta
+          </button>
+        ) : (
+          <form onSubmit={handleDeleteAccount} className="space-y-3">
+            <Field label="Confirme sua senha para excluir a conta">
+              <input
+                type="password"
+                value={deletePw}
+                onChange={e => setDeletePw(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="input"
+              />
+            </Field>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={deleting}
+                className="text-sm flex items-center gap-2"
+                style={{ padding: "0.5rem 1rem", borderRadius: "0.75rem", fontWeight: 600, cursor: deleting ? "default" : "pointer", border: "1px solid rgba(225,29,72,0.35)", backgroundColor: "rgba(225,29,72,0.1)", color: "#e11d48", opacity: deleting ? 0.6 : 1 }}
+              >
+                <IconTrash className="w-4 h-4" /> {deleting ? "Excluindo…" : "Confirmar exclusão"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowDeleteConfirm(false); setDeletePw(""); }}
+                disabled={deleting}
+                className="btn-ghost text-sm"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        )}
       </Section>
     </div>
   );

@@ -7,6 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
+USER appuser
+
 # App Runner's default container port
 ENV PORT=8080
 EXPOSE 8080

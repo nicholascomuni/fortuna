@@ -9,16 +9,17 @@ import pyotp
 import qrcode
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
-from extensions import db
-from models import User, Plan, Account
+from extensions import db, limiter
+from models import User, Plan, PlanShare, Account
 from email_utils import send_verification_email
-from routes import _uid
+from routes import _uid, _delete_plan_cascade
 
 auth_bp = Blueprint("auth", __name__)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 VERIFICATION_RESEND_COOLDOWN = timedelta(seconds=60)
+EMAIL_VERIFY_TOKEN_EXPIRES = timedelta(hours=24)
 PENDING_2FA_EXPIRES = timedelta(minutes=5)
 
 
@@ -31,6 +32,8 @@ def _validate_register(data):
         errors.append("E-mail inválido.")
     if len(data.get("password", "")) < 6:
         errors.append("A senha deve ter pelo menos 6 caracteres.")
+    if not data.get("terms_accepted"):
+        errors.append("É necessário aceitar os Termos de Uso e a Política de Privacidade.")
     return errors, email
 
 
@@ -43,6 +46,7 @@ def _send_verification(user: User) -> None:
 
 
 @auth_bp.route("/register", methods=["POST"])
+@limiter.limit("10 per hour")
 def register():
     data = request.get_json(force=True)
     errors, email = _validate_register(data)
@@ -52,7 +56,7 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({"errors": ["Este e-mail já está cadastrado."]}), 409
 
-    user = User(name=data["name"].strip(), email=email, email_verified=False)
+    user = User(name=data["name"].strip(), email=email, email_verified=False, terms_accepted_at=datetime.utcnow())
     user.set_password(data["password"])
     db.session.add(user)
     db.session.flush()  # need user.id
@@ -75,6 +79,7 @@ def register():
 
 
 @auth_bp.route("/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def login():
     data = request.get_json(force=True)
     email = data.get("email", "").strip().lower()
@@ -99,6 +104,7 @@ def login():
 
 
 @auth_bp.route("/login/2fa", methods=["POST"])
+@limiter.limit("10 per minute")
 @jwt_required()
 def login_2fa():
     claims = get_jwt()
@@ -126,6 +132,26 @@ def me():
     return jsonify(user.to_dict())
 
 
+@auth_bp.route("/me", methods=["DELETE"])
+@jwt_required()
+def delete_account():
+    """Permanently deletes the account and every plan it owns (reusing the
+    same cascade routes.py::delete_plan uses), plus any PlanShare grants
+    where this user was the recipient rather than the owner."""
+    uid = _uid()
+    user = User.query.get_or_404(uid)
+    data = request.get_json(force=True)
+    if not user.check_password(data.get("password", "")):
+        return jsonify({"error": "Senha incorreta."}), 403
+
+    for plan in Plan.query.filter_by(user_id=uid).all():
+        _delete_plan_cascade(plan)
+    PlanShare.query.filter_by(email=user.email).delete(synchronize_session=False)
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "Conta excluída com sucesso."})
+
+
 # ── Email verification ───────────────────────────────────────────────────────
 
 @auth_bp.route("/verify-email", methods=["POST"])
@@ -134,6 +160,8 @@ def verify_email():
     token = (data.get("token") or "").strip()
     user = User.query.filter_by(email_verify_token=token).first() if token else None
     if not user:
+        return jsonify({"error": "Link de verificação inválido ou expirado."}), 400
+    if not user.email_verify_sent_at or datetime.utcnow() - user.email_verify_sent_at > EMAIL_VERIFY_TOKEN_EXPIRES:
         return jsonify({"error": "Link de verificação inválido ou expirado."}), 400
     user.email_verified = True
     user.email_verify_token = None

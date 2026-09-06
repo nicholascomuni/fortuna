@@ -9,6 +9,7 @@ export default function Cadastro() {
   const { dark, toggle } = useTheme();
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "" });
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [errors, setErrors] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -16,9 +17,10 @@ export default function Cadastro() {
     e.preventDefault();
     setErrors([]);
     if (form.password !== form.confirm) { setErrors(["As senhas não coincidem."]); return; }
+    if (!termsAccepted) { setErrors(["É necessário aceitar os Termos de Uso e a Política de Privacidade."]); return; }
     setLoading(true);
     try {
-      await register(form.name, form.email, form.password);
+      await register(form.name, form.email, form.password, termsAccepted);
       navigate("/");
     } catch (err) {
       setErrors([err.message]);
@@ -59,6 +61,21 @@ export default function Cadastro() {
                 <input type={type} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} placeholder={placeholder} required autoFocus={field === "name"} className="input" />
               </div>
             ))}
+            <label className="flex items-start gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={e => setTermsAccepted(e.target.checked)}
+                required
+                style={{ marginTop: "0.2rem", flexShrink: 0 }}
+              />
+              <span>
+                Li e aceito os{" "}
+                <Link to="/termos" target="_blank" className="text-blue-600 hover:underline">Termos de Uso</Link>
+                {" "}e a{" "}
+                <Link to="/privacidade" target="_blank" className="text-blue-600 hover:underline">Política de Privacidade</Link>.
+              </span>
+            </label>
             <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 mt-1">
               {loading ? "Criando conta..." : "Criar conta"}
             </button>

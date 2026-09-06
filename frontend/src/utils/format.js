@@ -11,16 +11,6 @@ export function formatDate(dateStr) {
   return `${d}/${m}/${y}`;
 }
 
-// Convert dd/mm/yyyy or yyyy-mm-dd → yyyy-mm-dd for <input type="date">
-export function toInputDate(dateStr) {
-  if (!dateStr) return "";
-  if (dateStr.includes("/")) {
-    const [d, m, y] = dateStr.split("/");
-    return `${y}-${m}-${d}`;
-  }
-  return dateStr;
-}
-
 export function today() {
   return new Date().toISOString().split("T")[0];
 }

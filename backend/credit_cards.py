@@ -16,7 +16,7 @@ from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from extensions import db
 from models import CreditCard, CreditPurchase, CardCharge, Transaction
-from projection import _next_date
+from projection import _occurrence_date
 
 # Hard cap on how many occurrences a recurring card purchase can pre-generate
 # (CardCharge rows are real DB rows, unlike a recurring Transaction which is
@@ -121,9 +121,10 @@ def _build_recurring_charges(purchase: CreditPurchase, card: CreditCard) -> list
     subscription bills R$40 every month, not R$40 split over N charges.
     """
     charges = []
-    current = purchase.purchase_date
     n = 0
     while n < MAX_RECURRING_OCCURRENCES:
+        current = _occurrence_date(purchase.purchase_date, purchase.frequency, n)
+
         if (
             purchase.recurrence_end_type == "por_ocorrencias"
             and purchase.recurrence_count is not None
@@ -147,7 +148,6 @@ def _build_recurring_charges(purchase: CreditPurchase, card: CreditCard) -> list
             billing_date=compute_billing_date(current, card.due_day, 1),
             amount=float(purchase.total_amount),
         ))
-        current = _next_date(current, purchase.frequency)
 
     return charges
 

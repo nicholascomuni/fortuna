@@ -1,12 +1,18 @@
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
-Flask-CORS==4.0.1
+Flask-CORS==6.0.5
 Flask-JWT-Extended==4.7.4
+Flask-Limiter==4.1.1
 bcrypt==5.0.0
 python-dateutil==2.9.0
 psycopg[binary]==3.2.3
 gunicorn==23.0.0
 openai==3.8.0
+langchain==1.4.0
+langgraph==1.2.11
+langchain-openai==1.6.0
+# langchain-anthropic — add once the Anthropic provider in backend/agent/providers.py
+# is actually implemented (see AVAILABLE_MODELS in backend/agent/model_registry.py).
 python-dotenv==1.2.3
 truststore==0.10.4
 pyotp==2.10.0

@@ -98,7 +98,6 @@ controle_financeiro/
     │   │   └── TransactionForm.jsx
     │   ├── pages/
     │   │   ├── Dashboard.jsx          # Tela principal
-    │   │   ├── NewTransaction.jsx     # Cadastro de movimentação
     │   │   └── RecurringTransactions.jsx
     │   └── utils/format.js        # Formatação BRL e datas
     └── .env                       # VITE_API_URL

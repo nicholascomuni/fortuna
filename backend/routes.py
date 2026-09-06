@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from extensions import db
 from models import Transaction, Settings, User, CreditCard, CreditPurchase, CardCharge, Plan, Account, PlanShare, AiConversation, AiMessage
-from projection import build_projection, merge_credit_purchases
+from projection import build_projection, merge_credit_purchases, _occurrence_date
 import credit_cards as cc
 
 
@@ -21,10 +21,8 @@ def _generate_interest_children(parent: Transaction) -> list[Transaction]:
     if not rate or not count or not period:
         return []
 
-    delta = relativedelta(months=1) if period == "mensal" else relativedelta(years=1)
     base = float(parent.amount)
     children = []
-    current_date = parent.date + delta
 
     # A parceled invoice ("parcelar fatura") reuses this exact same parent+
     # children/compound-growth machinery, but the parent already IS
@@ -35,6 +33,8 @@ def _generate_interest_children(parent: Transaction) -> list[Transaction]:
     total_installments = count + 1
 
     for n in range(1, count + 1):
+        current_date = _occurrence_date(parent.date, period, n)
+
         # Value after n periods minus value after n-1 periods = incremental interest
         value_before = base * ((1 + rate / 100) ** (n - 1))
         value_after  = base * ((1 + rate / 100) ** n)
@@ -73,7 +73,6 @@ def _generate_interest_children(parent: Transaction) -> list[Transaction]:
             parent_id=parent.id,
         )
         children.append(child)
-        current_date += delta
 
     return children
 
@@ -213,6 +212,24 @@ def _validate_transaction(data: dict, pid: int) -> list[str]:
                     errors.append("Número de ocorrências deve ser maior que zero.")
             except (TypeError, ValueError):
                 errors.append("Número de ocorrências inválido.")
+    # Interest fields are optional here (unlike _finance_invoice, where
+    # they're the whole point of the call) — only enforce bounds once the
+    # caller actually set one of them, so a plain transaction without
+    # interest isn't required to pass anything for these.
+    if data.get("interest_rate") or data.get("interest_count") or data.get("interest_period"):
+        try:
+            if float(data.get("interest_rate", 0)) <= 0:
+                errors.append("Taxa de juros deve ser maior que zero.")
+        except (TypeError, ValueError):
+            errors.append("Taxa de juros inválida.")
+        try:
+            count = int(data.get("interest_count", 0))
+            if count < 1 or count > 60:
+                errors.append("Número de períodos de juros deve estar entre 1 e 60.")
+        except (TypeError, ValueError):
+            errors.append("Número de períodos de juros inválido.")
+        if data.get("interest_period") not in ("mensal", "anual"):
+            errors.append("Período de juros deve ser 'mensal' ou 'anual'.")
     return errors
 
 
@@ -1001,6 +1018,8 @@ def update_profile():
         email = (data["email"] or "").strip().lower()
         if not email or "@" not in email:
             return jsonify({"error": "E-mail inválido."}), 400
+        if email != user.email and not user.check_password(data.get("current_password", "")):
+            return jsonify({"error": "Senha atual incorreta."}), 403
         existing = User.query.filter(User.email == email, User.id != uid).first()
         if existing:
             return jsonify({"error": "E-mail já está em uso."}), 409
@@ -1322,21 +1341,13 @@ def update_plan(plan_id):
     return jsonify(plan.to_dict())
 
 
-@bp.route("/plans/<int:plan_id>", methods=["DELETE"])
-@jwt_required()
-def delete_plan(plan_id):
+def _delete_plan_cascade(plan: Plan) -> None:
     """
-    Owner-only. Cascades through every plan-scoped table by hand (bulk
-    .delete() calls bypass the ORM's own cascade config), in dependency
-    order so foreign keys never dangle. Anyone this plan was shared with,
-    or the owner themself if this was their active plan, self-heals to
-    their own plan on their next request — see _current_plan_id, which
-    already re-validates access every time rather than trusting a stale
-    active_plan_id.
+    Deletes every plan-scoped row for *plan*, in dependency order, then the
+    plan itself — bulk .delete() calls bypass the ORM's own cascade config,
+    so this is done by hand. Caller still needs to commit. Shared by
+    delete_plan below and auth.py's account-deletion endpoint.
     """
-    uid = _uid()
-    plan = Plan.query.filter_by(id=plan_id, user_id=uid).first_or_404()
-
     CardCharge.query.filter_by(plan_id=plan.id).delete(synchronize_session=False)
     CreditPurchase.query.filter_by(plan_id=plan.id).delete(synchronize_session=False)
     Transaction.query.filter_by(plan_id=plan.id).delete(synchronize_session=False)
@@ -1346,6 +1357,20 @@ def delete_plan(plan_id):
     AiMessage.query.filter_by(plan_id=plan.id).delete(synchronize_session=False)
     AiConversation.query.filter_by(plan_id=plan.id).delete(synchronize_session=False)
     db.session.delete(plan)
+
+
+@bp.route("/plans/<int:plan_id>", methods=["DELETE"])
+@jwt_required()
+def delete_plan(plan_id):
+    """
+    Owner-only. Anyone this plan was shared with, or the owner themself if
+    this was their active plan, self-heals to their own plan on their next
+    request — see _current_plan_id, which already re-validates access every
+    time rather than trusting a stale active_plan_id.
+    """
+    uid = _uid()
+    plan = Plan.query.filter_by(id=plan_id, user_id=uid).first_or_404()
+    _delete_plan_cascade(plan)
     db.session.commit()
     return jsonify({"message": "Plano excluído com sucesso."})
 

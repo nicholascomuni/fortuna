@@ -21,10 +21,10 @@ load_dotenv()
 from flask import Flask, jsonify
 from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
-from extensions import db, jwt
+from extensions import db, jwt, limiter
 from routes import bp as api_bp
 from auth import auth_bp
-from ai_agent import ai_bp
+from agent import ai_bp
 
 
 def _add_column_if_missing(conn, table: str, column: str, ddl: str):
@@ -88,6 +88,8 @@ def _migrate(database):
         _add_column_if_missing(conn, "users", "totp_secret", "VARCHAR(32)")
         _add_column_if_missing(conn, "users", "totp_enabled", "BOOLEAN NOT NULL DEFAULT false")
         _add_column_if_missing(conn, "ai_messages", "conversation_id", "INTEGER REFERENCES ai_conversations(id)")
+        _add_column_if_missing(conn, "ai_conversations", "model", "VARCHAR(60)")
+        _add_column_if_missing(conn, "users", "terms_accepted_at", "TIMESTAMP")
 
 
 def _migrate_legacy_credit_transactions(database):
@@ -354,17 +356,29 @@ def create_app():
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # Change this to a long random string in production
-    app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "dev-secret-mude-em-producao")
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 60 * 60 * 24 * 30  # 30 dias
+    jwt_secret = os.environ.get("JWT_SECRET_KEY")
+    if not jwt_secret:
+        # No fallback to a fixed string here on purpose — a hardcoded
+        # secret checked into source lets anyone forge a token for any
+        # user id. A random one still lets local/dev boot without config
+        # (it just invalidates existing tokens on every restart, same as
+        # today), while production always sets JWT_SECRET_KEY for real
+        # (see infra/main.tf's Secrets Manager wiring).
+        import secrets as _secrets
+        jwt_secret = _secrets.token_hex(32)
+    app.config["JWT_SECRET_KEY"] = jwt_secret
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 60 * 60 * 24 * 14  # 14 dias
 
     # Comma-separated list of allowed origins in production (e.g. the
     # Cloudflare Pages domain). Falls back to "*" for local development.
     cors_origins = os.environ.get("CORS_ORIGINS", "*")
     origins = [o.strip() for o in cors_origins.split(",")] if cors_origins != "*" else "*"
-    CORS(app, origins=origins, supports_credentials=True)
+    # No supports_credentials — auth is a Bearer header (see api/client.js),
+    # never cookies, so the browser never needs credentialed CORS mode.
+    CORS(app, origins=origins)
     db.init_app(app)
     jwt.init_app(app)
+    limiter.init_app(app)
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(api_bp, url_prefix="/api")

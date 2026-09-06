@@ -102,6 +102,8 @@ export const api = {
   login2fa: (preToken, code) =>
     requestWithToken("/auth/login/2fa", preToken, { method: "POST", body: JSON.stringify({ code }) }),
   me: () => request("/auth/me"),
+  deleteMyAccount: (password) =>
+    request("/auth/me", { method: "DELETE", body: JSON.stringify({ password }) }),
 
   // Email verification
   verifyEmail: (token) =>
@@ -216,8 +218,12 @@ export const api = {
     request(`/accounts/${id}`, { method: "DELETE" }),
 
   // AI assistant — conversations
+  getAiModels: () => request("/ai/models"),
   getAiConversations: () => request("/ai/conversations"),
-  createAiConversation: () => request("/ai/conversations", { method: "POST" }),
+  createAiConversation: (model) =>
+    request("/ai/conversations", { method: "POST", body: JSON.stringify(model ? { model } : {}) }),
+  updateAiConversation: (id, data) =>
+    request(`/ai/conversations/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteAiConversation: (id) => request(`/ai/conversations/${id}`, { method: "DELETE" }),
   getAiConversationMessages: (id) => request(`/ai/conversations/${id}/messages`),
   sendAiMessage: (conversationId, content) =>

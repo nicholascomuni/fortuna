@@ -11,13 +11,26 @@ from dateutil.relativedelta import relativedelta
 from decimal import Decimal
 
 
-def _next_date(current: date, frequency: str) -> date:
+def _occurrence_date(anchor: date, frequency: str, n: int) -> date:
+    """
+    The date of the n-th occurrence after *anchor* (n=0 is *anchor* itself),
+    always computed relative to the original anchor rather than the
+    previous occurrence. Stepping iteratively from the previous date
+    (`current + relativedelta(months=1)` repeated) permanently loses a
+    monthly recurrence's day-of-month once it crosses a shorter month —
+    relativedelta clips day 31 to Feb's 28th, and the NEXT step then adds a
+    month to that clipped date instead of the original 31st, landing on
+    Mar 28 instead of Mar 31, forever. Anchoring every step to the original
+    date (like credit_cards.compute_billing_date already does) avoids that.
+    """
     if frequency == "semanal":
-        return current + timedelta(weeks=1)
-    if frequency == "mensal":
-        return current + relativedelta(months=1)
+        return anchor + timedelta(weeks=n)
     if frequency == "anual":
-        return current + relativedelta(years=1)
+        return anchor + relativedelta(years=n)
+    if frequency == "mensal":
+        target = anchor.replace(day=1) + relativedelta(months=n)
+        last_day = (target.replace(day=1) + relativedelta(months=1) - timedelta(days=1)).day
+        return target.replace(day=min(anchor.day, last_day))
     raise ValueError(f"Unknown frequency: {frequency}")
 
 
@@ -43,12 +56,15 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
         return occurrences
 
     # Recorrente — walk forward from tx.date
-    current = tx.date
     emitted = 0
     rate = getattr(tx, "interest_rate", None) or 0.0  # % per period (e.g. 1.0 = 1%)
     base = float(tx.amount)
 
-    while current <= range_end:
+    while True:
+        current = _occurrence_date(tx.date, tx.frequency, emitted)
+        if current > range_end:
+            break
+
         # Honour recurrence_count
         if (
             tx.recurrence_end_type == "por_ocorrencias"
@@ -87,7 +103,6 @@ def expand_transaction(tx, range_start: date, range_end: date) -> list[dict]:
                 occurrences.append(_make_occurrence(tx, current, base))
 
         emitted += 1
-        current = _next_date(current, tx.frequency)
 
     return occurrences
 
@@ -188,9 +203,12 @@ def _purchase_occurrence(p, occurrence_date: date) -> dict:
 def _expand_recurring_purchase(p, range_start: date, range_end: date) -> list[dict]:
     """Walk a recurring CreditPurchase's occurrences, same pattern as expand_transaction."""
     occurrences = []
-    current = p.purchase_date
     emitted = 0
-    while current <= range_end:
+    while True:
+        current = _occurrence_date(p.purchase_date, p.frequency, emitted)
+        if current > range_end:
+            break
+
         if (
             p.recurrence_end_type == "por_ocorrencias"
             and p.recurrence_count is not None
@@ -208,7 +226,6 @@ def _expand_recurring_purchase(p, range_start: date, range_end: date) -> list[di
             occurrences.append(_purchase_occurrence(p, current))
 
         emitted += 1
-        current = _next_date(current, p.frequency)
 
     return occurrences
 

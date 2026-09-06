@@ -14,6 +14,7 @@ import Reports from "./pages/Reports";
 import Login from "./pages/Login";
 import Cadastro from "./pages/Cadastro";
 import VerifyEmail from "./pages/VerifyEmail";
+import { Terms, PrivacyPolicy } from "./pages/Legal";
 
 export default function App() {
   return (
@@ -24,6 +25,8 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/cadastro" element={<Cadastro />} />
             <Route path="/verificar-email" element={<VerifyEmail />} />
+            <Route path="/termos" element={<Terms />} />
+            <Route path="/privacidade" element={<PrivacyPolicy />} />
             <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
             <Route path="/cartoes"      element={<PrivateRoute><Layout><CreditCards /></Layout></PrivateRoute>} />
             <Route path="/contas"       element={<PrivateRoute><Layout><Accounts /></Layout></PrivateRoute>} />
